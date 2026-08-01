@@ -14,11 +14,24 @@
           <span class="name">Murmure</span>
         </div>
 
+        <button class="cta" id="btn-dictate">
+          <span class="cta-dot"></span>
+          <span id="cta-label">Dicter</span>
+          <kbd id="cta-hotkey"></kbd>
+        </button>
+
         <button class="nav-item active" data-tab="history">Historique</button>
+        <button class="nav-item" data-tab="files">Fichiers</button>
         <button class="nav-item" data-tab="models">Modèles</button>
         <button class="nav-item" data-tab="settings">Réglages</button>
 
         <div class="sidebar-foot">
+          <!-- Barre de progression : telechargement de modele, ou lot de fichiers -->
+          <div class="progress" id="progress" hidden>
+            <div class="progress-label" id="progress-label"></div>
+            <div class="progress-track"><div class="progress-bar" id="progress-bar"></div></div>
+          </div>
+
           <div class="status" id="status">
             <span class="dot" id="status-dot"></span>
             <span id="status-text">Connexion…</span>
@@ -41,6 +54,28 @@
             />
           </header>
           <div class="list" id="history-list"></div>
+        </section>
+
+        <!-- -------------------------------------------------- Fichiers -->
+        <section class="panel" data-panel="files">
+          <header class="panel-head">
+            <h1>Transcrire des fichiers</h1>
+            <p class="sub">
+              Audio ou vidéo, n'importe quel format. Les vidéos sont acceptées :
+              seule la piste son est extraite.
+            </p>
+          </header>
+
+          <div class="drop" id="drop">
+            <div class="drop-inner">
+              <div class="drop-icon"></div>
+              <p class="drop-title">Dépose tes fichiers ici</p>
+              <p class="drop-sub" id="drop-formats"></p>
+              <button class="btn-solid" id="btn-pick">Parcourir…</button>
+            </div>
+          </div>
+
+          <div class="jobs" id="jobs"></div>
         </section>
 
         <!-- --------------------------------------------------- Modèles -->
@@ -76,6 +111,26 @@
                 <select id="set-hotkey_mode" class="input">
                   <option value="hold">Maintenir la touche</option>
                   <option value="toggle">Appuyer / ré-appuyer</option>
+                </select>
+              </label>
+            </fieldset>
+
+            <fieldset>
+              <legend>Langue</legend>
+
+              <label class="row">
+                <span class="label">
+                  Langue de transcription
+                  <em
+                    >Automatique préserve les anglicismes tels que tu les prononces.
+                    Forcer une langue pousse le modèle à les déformer
+                    phonétiquement.</em
+                  >
+                </span>
+                <select id="set-language" class="input">
+                  <option value="auto">Automatique (recommandé)</option>
+                  <option value="fr">Français</option>
+                  <option value="en">Anglais</option>
                 </select>
               </label>
             </fieldset>

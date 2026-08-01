@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+use std::process::Child;
 use std::sync::Mutex;
 
 use tauri::{
@@ -7,9 +9,9 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
-/// Ctrl+Alt+Space est frequemment pris (SuperWhisper, entre autres) et
-/// l'enregistrement echoue alors silencieusement. On part sur plus discret.
-const DEFAULT_HOTKEY: &str = "Ctrl+Alt+D";
+/// Attention : Ctrl+Space est aussi l'autocompletion de la plupart des IDE.
+/// Un raccourci global le confisque a l'echelle du systeme.
+const DEFAULT_HOTKEY: &str = "Ctrl+Space";
 
 /// Hauteurs de l'overlay selon la phase. L'ecoute est une pastille compacte ;
 /// la relecture doit laisser respirer plusieurs lignes de texte.
@@ -28,6 +30,67 @@ struct Hotkey {
 }
 
 struct HotkeyState(Mutex<Hotkey>);
+
+/// Le service Python lance par l'application, pour qu'il n'y ait qu'une seule
+/// chose a demarrer. Vide si un service tournait deja : on ne le double pas.
+struct ServiceProcess(Mutex<Option<Child>>);
+
+/// Cherche `backend/.venv/Scripts/pythonw.exe` en remontant depuis l'executable.
+/// Fonctionne aussi bien depuis target/debug que depuis un dossier installe.
+fn find_service_python() -> Option<(PathBuf, PathBuf)> {
+    if let Ok(root) = std::env::var("MURMURE_ROOT") {
+        let root = PathBuf::from(root);
+        let python = root.join("backend/.venv/Scripts/pythonw.exe");
+        if python.exists() {
+            return Some((python, root.join("backend")));
+        }
+    }
+
+    let exe = std::env::current_exe().ok()?;
+    let mut dir = exe.parent()?;
+    for _ in 0..6 {
+        let python = dir.join("backend/.venv/Scripts/pythonw.exe");
+        if python.exists() {
+            return Some((python, dir.join("backend")));
+        }
+        dir = dir.parent()?;
+    }
+    None
+}
+
+fn service_is_running() -> bool {
+    // Un simple TCP connect suffit : pas besoin de client HTTP pour ca.
+    std::net::TcpStream::connect_timeout(
+        &"127.0.0.1:8756".parse().unwrap(),
+        std::time::Duration::from_millis(400),
+    )
+    .is_ok()
+}
+
+fn spawn_service() -> Option<Child> {
+    if service_is_running() {
+        return None;
+    }
+
+    let (python, cwd) = find_service_python()?;
+    let mut command = std::process::Command::new(python);
+    command.arg("-m").arg("murmure").current_dir(cwd);
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    match command.spawn() {
+        Ok(child) => Some(child),
+        Err(err) => {
+            eprintln!("Service Python non demarre : {err}");
+            None
+        }
+    }
+}
 
 fn overlay(app: &AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window("overlay")
@@ -80,6 +143,19 @@ fn hide_overlay(app: AppHandle) {
 fn resize_overlay(app: AppHandle, height: f64) {
     if let Some(win) = overlay(&app) {
         position_overlay(&win, height.clamp(H_LISTENING, 720.0));
+    }
+}
+
+/// Declenche une dictee sans passer par le raccourci global : utilise par le
+/// bouton de la fenetre principale et par l'entree « Dicter » du menu systeme.
+#[tauri::command]
+fn trigger_dictation(app: AppHandle) {
+    if let Some(win) = overlay(&app) {
+        position_overlay(&win, H_LISTENING);
+        let _ = win.show();
+        // "toggle" : premier appel demarre, second termine — quel que soit le
+        // mode configure, puisqu'il n'y a pas de touche a relacher ici.
+        let _ = win.emit("hotkey", "toggle");
     }
 }
 
@@ -148,16 +224,16 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
-            "dictate" => {
-                if let Some(win) = overlay(app) {
-                    position_overlay(&win, H_LISTENING);
-                    let _ = win.show();
-                    let _ = win.emit("hotkey", "toggle");
-                }
-            }
+            "dictate" => trigger_dictation(app.clone()),
             "history" => open_main(app.clone(), Some("history".into())),
             "settings" => open_main(app.clone(), Some("settings".into())),
-            "quit" => app.exit(0),
+            "quit" => {
+                // On n'arrete que le service qu'on a nous-meme lance.
+                if let Some(mut child) = app.state::<ServiceProcess>().0.lock().unwrap().take() {
+                    let _ = child.kill();
+                }
+                app.exit(0)
+            }
             _ => {}
         })
         .build(app)?;
@@ -168,6 +244,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -185,11 +262,13 @@ pub fn run() {
                 .build(),
         )
         .manage(HotkeyState(Mutex::new(Hotkey::default())))
+        .manage(ServiceProcess(Mutex::new(spawn_service())))
         .invoke_handler(tauri::generate_handler![
             show_overlay,
             hide_overlay,
             resize_overlay,
             open_main,
+            trigger_dictation,
             set_hotkey,
             hotkey_status
         ])

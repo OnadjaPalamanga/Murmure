@@ -10,6 +10,7 @@ import logging
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -17,10 +18,12 @@ import soundfile as sf
 
 from .audio import Recorder, list_input_devices
 from .config import ConfigStore
+from .download import DownloadWatcher
 from .engines.base import SAMPLE_RATE, Engine
 from .history import History
+from .media import AUDIO_EXT, VIDEO_EXT, find_ffmpeg, load_audio
 from .models import build_engine, get_spec, list_models
-from .paths import AUDIO_DIR
+from .paths import AUDIO_DIR, MODELS_DIR
 
 log = logging.getLogger(__name__)
 
@@ -113,8 +116,31 @@ class Service:
             self._loading = True
             self.emit({"type": "model_loading", "model_id": spec.id, "label": spec.label})
             try:
+                self.emit(
+                    {
+                        "type": "model_stage",
+                        "model_id": spec.id,
+                        "stage": "loading",
+                        "message": f"Préparation de {spec.label}…",
+                    }
+                )
                 engine = build_engine(spec, prefer_gpu=self.config.settings.prefer_gpu)
-                engine.load()
+
+                # load() telecharge le modele s'il manque : on observe le cache
+                # grossir pendant ce temps pour ne pas laisser l'ecran fige.
+                with DownloadWatcher(
+                    MODELS_DIR / "hub", on_progress=self._on_download_progress(spec)
+                ):
+                    engine.load()
+
+                self.emit(
+                    {
+                        "type": "model_stage",
+                        "model_id": spec.id,
+                        "stage": "warmup",
+                        "message": "Préparation des noyaux GPU…",
+                    }
+                )
                 engine.warmup()
                 self._engine = engine
             finally:
@@ -122,6 +148,24 @@ class Service:
 
             self.emit({"type": "model_ready", **self.engine_status()})
             return self._engine
+
+    def _on_download_progress(self, spec):
+        """Rapporte les octets reellement recus. Le total est inconnu : chaque
+        bibliotheque ne prend qu'une partie de son depot, l'annoncer serait faux."""
+
+        def report(downloaded: int) -> None:
+            self.emit(
+                {
+                    "type": "model_stage",
+                    "model_id": spec.id,
+                    "stage": "downloading",
+                    "downloaded_bytes": downloaded,
+                    "total_bytes": 0,
+                    "message": f"Téléchargement de {spec.label}…",
+                }
+            )
+
+        return report
 
     def set_model(self, model_id: str) -> dict:
         get_spec(model_id)  # leve KeyError si inconnu
@@ -177,7 +221,7 @@ class Service:
                 return
 
             engine = self.ensure_engine()
-            result = engine.transcribe(audio)
+            result = engine.transcribe(audio, language=self._resolved_language())
             text = self._post_process(result.text)
 
             if not text:
@@ -210,6 +254,92 @@ class Service:
             self._set_state("idle")
             self.emit({"type": "error", "message": str(exc)})
 
+    # ------------------------------------------------------ fichiers importes
+
+    def transcribe_files(self, paths: list[str]) -> None:
+        """Transcrit des fichiers audio/video deja sur le disque, en tache de fond."""
+        threading.Thread(target=self._files_worker, args=(list(paths),), daemon=True).start()
+
+    def _files_worker(self, paths: list[str]) -> None:
+        total = len(paths)
+        for index, raw_path in enumerate(paths, start=1):
+            path = Path(raw_path)
+            try:
+                self.emit(
+                    {
+                        "type": "file_progress",
+                        "stage": "reading",
+                        "index": index,
+                        "total": total,
+                        "name": path.name,
+                        "message": f"Lecture de {path.name}…",
+                    }
+                )
+                audio = load_audio(path)
+                duration = len(audio) / SAMPLE_RATE
+
+                self._set_state("transcribing", audio_seconds=round(duration, 2))
+                self.emit(
+                    {
+                        "type": "file_progress",
+                        "stage": "transcribing",
+                        "index": index,
+                        "total": total,
+                        "name": path.name,
+                        "audio_seconds": round(duration, 2),
+                        "message": f"Transcription de {path.name} ({duration / 60:.1f} min)…",
+                    }
+                )
+
+                engine = self.ensure_engine()
+                result = engine.transcribe(audio, language=self._resolved_language())
+                text = self._post_process(result.text)
+
+                if not text:
+                    self.emit(
+                        {
+                            "type": "file_done",
+                            "name": path.name,
+                            "ok": False,
+                            "message": "Aucune parole détectée",
+                        }
+                    )
+                    continue
+
+                entry = self.history.add(
+                    text=text,
+                    model_id=self.model_id,
+                    device=result.device,
+                    audio_seconds=result.audio_seconds,
+                    latency_ms=result.latency_ms,
+                    audio_path=str(path),
+                )
+                self.emit(
+                    {
+                        "type": "file_done",
+                        "name": path.name,
+                        "ok": True,
+                        "entry": entry,
+                        "latency_ms": result.latency_ms,
+                        "realtime_factor": round(result.realtime_factor, 1),
+                    }
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.exception("Echec sur le fichier %s", path)
+                self.emit(
+                    {"type": "file_done", "name": path.name, "ok": False, "message": str(exc)}
+                )
+
+        self._set_state("idle")
+        self.emit({"type": "files_finished", "total": total})
+
+    # ------------------------------------------------------------- reglages
+
+    def _resolved_language(self) -> str | None:
+        """None = detection automatique, ce qui preserve les anglicismes dits tels quels."""
+        value = (self.config.settings.language or "auto").strip().lower()
+        return None if value in ("", "auto") else value
+
     def _post_process(self, text: str) -> str:
         text = " ".join(text.split()).strip()
         for src, dst in (self.config.settings.replacements or {}).items():
@@ -239,6 +369,9 @@ class Service:
             "models": [s.to_dict() for s in list_models()],
             "devices": [d.to_dict() for d in list_input_devices()],
             "stats": self.history.stats(),
+            # Le selecteur de fichiers du frontend se construit a partir d'ici.
+            "media_extensions": {"audio": AUDIO_EXT, "video": VIDEO_EXT},
+            "has_ffmpeg": find_ffmpeg() is not None,
         }
 
     def update_settings(self, changes: dict) -> dict:

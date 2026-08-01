@@ -12,6 +12,10 @@ frontend/src-tauri/gen/
 models/
 !models/.gitkeep
 
-# Donnees locales
+# Binaires externes (ffmpeg fait 79 Mo)
+bin/
+
+# Donnees locales et personnelles
 *.db
 *.log
+_superwhisper_sauvegarde/

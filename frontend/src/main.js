@@ -141,6 +141,7 @@ function renderModels(models, activeId, engine) {
 const FIELDS = [
   "hotkey",
   "hotkey_mode",
+  "language",
   "input_device",
   "preroll_ms",
   "mic_keepalive_s",
@@ -213,6 +214,94 @@ function renderDevices(devices, current) {
   select.value = current === null || current === undefined ? "" : String(current);
 }
 
+// ------------------------------------------------------------- progression
+
+function showProgress(label, done, total) {
+  const wrap = $("#progress");
+  const bar = $("#progress-bar");
+  wrap.hidden = false;
+  $("#progress-label").textContent = label;
+
+  if (total > 0) {
+    bar.classList.remove("indeterminate");
+    bar.style.width = `${Math.min(100, (done / total) * 100).toFixed(1)}%`;
+  } else {
+    // Total inconnu : une barre qui glisse plutôt qu'un pourcentage inventé.
+    bar.classList.add("indeterminate");
+  }
+}
+
+function hideProgress() {
+  $("#progress").hidden = true;
+  $("#progress-bar").classList.remove("indeterminate");
+  $("#progress-bar").style.width = "0%";
+}
+
+const mo = (bytes) => `${(bytes / 1024 / 1024).toFixed(0)} Mo`;
+
+// ---------------------------------------------------------------- fichiers
+
+let mediaExt = { audio: [], video: [] };
+const jobs = new Map();
+
+function renderJobs() {
+  const wrap = $("#jobs");
+  wrap.textContent = "";
+  for (const [name, job] of [...jobs].reverse()) {
+    const row = document.createElement("div");
+    row.className = `job ${job.status}`;
+
+    if (job.status === "run") {
+      const spin = document.createElement("span");
+      spin.className = "spin";
+      row.appendChild(spin);
+    }
+
+    const label = document.createElement("span");
+    label.className = "name";
+    label.textContent = name;
+
+    const state = document.createElement("span");
+    state.className = "state";
+    state.textContent = job.message;
+
+    row.append(label, state);
+    wrap.appendChild(row);
+  }
+}
+
+function submitFiles(paths) {
+  if (!paths?.length) return;
+  for (const p of paths) {
+    jobs.set(p.split(/[\\/]/).pop(), { status: "run", message: "en attente…" });
+  }
+  renderJobs();
+  showTab("files");
+  bus.send("transcribe_files", { paths });
+}
+
+$("#btn-pick").addEventListener("click", async () => {
+  const { open } = window.__TAURI__.dialog;
+  const selected = await open({
+    multiple: true,
+    filters: [
+      { name: "Audio et vidéo", extensions: [...mediaExt.audio, ...mediaExt.video] },
+      { name: "Tous les fichiers", extensions: ["*"] },
+    ],
+  });
+  submitFiles(Array.isArray(selected) ? selected : selected ? [selected] : []);
+});
+
+// Glisser-deposer : Tauri fournit les vrais chemins disque, contrairement a
+// l'API fichier du navigateur.
+const drop = $("#drop");
+listen("tauri://drag-enter", () => drop.classList.add("over"));
+listen("tauri://drag-leave", () => drop.classList.remove("over"));
+listen("tauri://drag-drop", ({ payload }) => {
+  drop.classList.remove("over");
+  submitFiles(payload?.paths ?? []);
+});
+
 // ------------------------------------------------------------------- flux
 
 bus.on("connection", ({ connected }) => {
@@ -226,6 +315,13 @@ bus.on("snapshot", (msg) => {
   renderModels(msg.models, msg.settings.model_id, msg.engine);
   renderDevices(msg.devices, msg.settings.input_device);
   for (const name of FIELDS) writeField(name, msg.settings[name]);
+
+  $("#cta-hotkey").textContent = msg.settings.hotkey;
+
+  mediaExt = msg.media_extensions ?? mediaExt;
+  $("#drop-formats").textContent = msg.has_ffmpeg
+    ? `Audio : ${mediaExt.audio.join(", ")} — Vidéo : ${mediaExt.video.join(", ")}`
+    : `Audio : ${mediaExt.audio.join(", ")} (ffmpeg absent : vidéos indisponibles)`;
 
   const { count, total_audio_seconds } = msg.stats;
   $("#stats").textContent = `${count} dictée${count > 1 ? "s" : ""} · ${Math.round(
@@ -261,16 +357,65 @@ bus.on("history_deleted", () => {
 bus.on("model_loading", ({ label }) => {
   $("#status-dot").className = "dot busy";
   $("#status-text").textContent = `Chargement ${label}…`;
+  showProgress(`Préparation de ${label}…`, 0, 0);
+});
+
+// Chaque étape est nommée : plus rien ne se passe à l'aveugle.
+bus.on("model_stage", (msg) => {
+  if (msg.stage === "downloading") {
+    const { downloaded_bytes: done = 0, total_bytes: total = 0 } = msg;
+    // Total inconnu : on affiche les octets reçus, jamais un pourcentage faux.
+    showProgress(`${msg.message} ${mo(done)} reçus`, done, total);
+    $("#status-text").textContent = "Téléchargement…";
+  } else {
+    showProgress(msg.message, 0, 0);
+  }
 });
 
 bus.on("model_ready", (engine) => {
+  hideProgress();
   updateEngineStatus(engine);
   if (snapshot) renderModels(snapshot.models, engine.model_id, engine);
   toast("Modèle prêt");
 });
 
+// --- dictée depuis la fenêtre principale ---
+
+$("#btn-dictate").addEventListener("click", () => invoke("trigger_dictation"));
+
+bus.on("state", ({ state }) => {
+  $("#btn-dictate").classList.toggle("recording", state === "recording");
+  $("#cta-label").textContent =
+    state === "recording" ? "Arrêter" : state === "transcribing" ? "Transcription…" : "Dicter";
+});
+
+// --- lot de fichiers ---
+
+bus.on("file_progress", (msg) => {
+  jobs.set(msg.name, { status: "run", message: msg.message });
+  renderJobs();
+  showProgress(`${msg.message} (${msg.index}/${msg.total})`, msg.index - 1, msg.total);
+});
+
+bus.on("file_done", (msg) => {
+  jobs.set(msg.name, {
+    status: msg.ok ? "ok" : "ko",
+    message: msg.ok ? `${msg.latency_ms} ms · ${msg.realtime_factor}×` : msg.message,
+  });
+  renderJobs();
+  if (msg.ok) refreshHistory();
+});
+
+bus.on("files_finished", ({ total }) => {
+  hideProgress();
+  toast(`${total} fichier${total > 1 ? "s" : ""} traité${total > 1 ? "s" : ""}`);
+});
+
 bus.on("final", () => refreshHistory());
-bus.on("error", ({ message }) => toast(message));
+bus.on("error", ({ message }) => {
+  hideProgress();
+  toast(message, 6000);
+});
 
 bindSettings();
 

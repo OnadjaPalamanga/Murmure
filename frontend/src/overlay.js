@@ -157,7 +157,21 @@ bus.on("level", ({ value }) => {
 });
 
 bus.on("model_loading", ({ label }) => {
-  if (state === "idle") el.hint.textContent = `Chargement ${label}…`;
+  if (state !== "recording") el.hint.textContent = `Préparation ${label}…`;
+});
+
+// L'overlay affiche aussi l'avancement : si on déclenche une dictée alors que le
+// modèle se télécharge encore, il faut savoir pourquoi ça ne répond pas.
+bus.on("model_stage", (msg) => {
+  if (state === "recording") return;
+  if (msg.stage === "downloading") {
+    const mo = (msg.downloaded_bytes / 1024 / 1024).toFixed(0);
+    el.hint.textContent = `Téléchargement du modèle — ${mo} Mo`;
+  } else if (msg.stage === "loading") {
+    el.hint.textContent = "Chargement en mémoire…";
+  } else if (msg.stage === "warmup") {
+    el.hint.textContent = "Préparation GPU…";
+  }
 });
 
 bus.on("final", async (msg) => {

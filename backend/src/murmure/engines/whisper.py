@@ -1,15 +1,16 @@
 """Moteur Whisper via faster-whisper (CTranslate2).
 
 Les valeurs par defaut ici sont reglees pour de la DICTEE COURTE, pas pour du
-fichier long. Les quatre reglages qui comptent vraiment :
+fichier long. Les reglages qui comptent vraiment :
 
   * `condition_on_previous_text=False` : sans ca, Whisper reinjecte son propre
     texte dans le prompt et part en boucle sur les silences.
-  * langue forcee : sur un clip de 10 s, la detection automatique se trompe
-    regulierement et bascule en anglais ou en italien.
   * `vad_filter` : supprime les blancs, qui sont le declencheur n1 des
     hallucinations ("Sous-titres realises par la communaute d'Amara.org").
   * `without_timestamps=True` : on jette les timestamps de toute facon.
+  * langue : `None` par defaut, c'est-a-dire detection automatique. Forcer "fr"
+    pousse le decodeur a franciser phonetiquement les mots anglais reellement
+    prononces ; on prefere la fidelite a ce qui est dit.
 """
 
 from __future__ import annotations
@@ -24,11 +25,20 @@ from .base import SAMPLE_RATE, Transcript
 
 log = logging.getLogger(__name__)
 
-# Amorce la ponctuation et les majuscules : Whisper imite le style du prompt.
-FRENCH_PROMPT = (
-    "Bonjour, voici une note dictee. Elle est correctement ponctuee, "
-    "avec des virgules, des points et des majuscules."
+# Whisper imite le style de son amorce. Celle-ci fait deux choses :
+# elle demande une ponctuation normale, et elle contient volontairement des
+# anglicismes ECRITS EN ANGLAIS. Sans ce second point, le decodeur transcrit
+# "meeting" en "mitine" ou "deadline" en "dedeline" des qu'il se croit en
+# francais. On veut ce qui est reellement dit, pas une francisation forcee.
+DICTATION_PROMPT = (
+    "Voici une note dictée, ponctuée normalement, avec majuscules et virgules. "
+    "Elle mélange naturellement le français et l'anglais : un meeting, le workflow, "
+    "la deadline, un call, le feedback, le dataset, debug, machine learning."
 )
+
+# Sentinelle : distingue « appelant n'a rien precise » de « detection automatique
+# demandee explicitement », que None represente.
+_UNSET = object()
 
 
 class WhisperEngine:
@@ -40,9 +50,9 @@ class WhisperEngine:
         repo: str,
         *,
         compute_type: str = "int8_float16",
-        language: str | None = "fr",
+        language: str | None = None,
         beam_size: int = 1,
-        initial_prompt: str | None = FRENCH_PROMPT,
+        initial_prompt: str | None = DICTATION_PROMPT,
         vad_filter: bool = True,
         prefer_gpu: bool = True,
         download_root: str | None = None,
@@ -109,21 +119,24 @@ class WhisperEngine:
             self.load()
         silence = np.zeros(SAMPLE_RATE, dtype=np.float32)
         try:
-            segments, _ = self._model.transcribe(silence, language=self.language)
+            segments, _ = self._model.transcribe(silence, language=self.language or "fr")
             list(segments)
         except Exception:  # noqa: BLE001
             log.debug("Warmup Whisper sans effet", exc_info=True)
 
-    def transcribe(self, audio: np.ndarray, language: str | None = None) -> Transcript:
+    def transcribe(self, audio: np.ndarray, language=_UNSET) -> Transcript:
         if not self.is_loaded:
             self.load()
+
+        # None passe explicitement = detection automatique demandee.
+        resolved = self.language if language is _UNSET else language
 
         audio = np.ascontiguousarray(audio, dtype=np.float32)
         started = time.perf_counter()
 
         segments, info = self._model.transcribe(
             audio,
-            language=language or self.language,
+            language=resolved,
             beam_size=self.beam_size,
             initial_prompt=self.initial_prompt,
             condition_on_previous_text=False,
@@ -139,7 +152,7 @@ class WhisperEngine:
 
         return Transcript(
             text=text,
-            language=getattr(info, "language", None) or self.language,
+            language=getattr(info, "language", None) or resolved,
             audio_seconds=len(audio) / SAMPLE_RATE,
             latency_ms=latency_ms,
             device=self.device,

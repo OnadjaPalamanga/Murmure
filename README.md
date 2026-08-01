@@ -31,30 +31,55 @@ Prérequis : [uv](https://docs.astral.sh/uv/), Node 18+, Rust, et les
 Build Tools MSVC (déjà présents si Visual Studio est installé).
 
 ```powershell
-cd backend
-uv venv --python 3.12
-uv pip install -e .
-
-cd ../frontend
-npm install
+.\install.ps1
 ```
 
-## Lancement
+Le script crée l'environnement Python s'il manque, compile l'application, et
+l'ajoute au démarrage de la session. Aucun privilège administrateur requis.
 
 ```powershell
-.\run.ps1            # service + application
-.\run.ps1 -Build     # compile l'installateur .exe
+.\install.ps1 -Uninstall   # retire du démarrage, ne touche pas aux données
+.\run.ps1                  # mode développement, rechargement à chaud
 ```
 
-Le premier démarrage télécharge le modèle par défaut (~600 Mo) dans `models/hub`.
+**Il n'y a qu'une seule chose à lancer** : l'application démarre elle-même le
+service Python si besoin, et l'arrête quand tu quittes par le menu système.
+
+Le premier démarrage télécharge le modèle par défaut (~600 Mo) dans `models/hub`,
+avec la progression affichée — pas d'écran figé sans explication.
 
 ## Utilisation
 
-`Ctrl+Alt+Space` maintenu — parle — relâche. Le texte est copié dans le
+`Ctrl+Space` maintenu — parle — relâche. Le texte est copié dans le
 presse-papier et affiché pour relecture. `Échap` annule.
 
-L'icône dans la zone de notification donne accès à l'historique et aux réglages.
+> `Ctrl+Space` est aussi l'autocomplétion de la plupart des IDE, et un raccourci
+> global le confisque à l'échelle du système. Si ça gêne, change-le dans Réglages ;
+> un raccourci déjà pris par une autre application est signalé au lieu d'échouer
+> en silence.
+
+Trois autres façons de déclencher : le bouton **Dicter** de la fenêtre principale,
+l'entrée **Dicter** du menu de la zone de notification, ou l'onglet **Fichiers**
+pour transcrire de l'audio existant.
+
 Fermer la fenêtre principale ne quitte pas : le raccourci reste actif.
+
+## Transcrire des fichiers existants
+
+Onglet **Fichiers** : glisse-dépose ou parcours. Audio et vidéo, n'importe quel
+format — pour une vidéo, seule la piste son est extraite. Les formats courants
+passent par `soundfile` ; le reste par `ffmpeg` (fourni dans `bin/`).
+
+## Langue et anglicismes
+
+Le réglage de langue est sur **Automatique** par défaut, et c'est délibéré :
+forcer « français » pousse le décodeur à transcrire phonétiquement les mots
+anglais réellement prononcés (« meeting » → « mitine »). L'amorce donnée à
+Whisper contient d'ailleurs des anglicismes écrits en anglais, précisément pour
+qu'il les laisse tels quels.
+
+Contrepartie : sur un clip très court sans mots réels, la détection automatique
+peut se tromper de langue. Si ça arrive, force la langue dans Réglages.
 
 ## Modèles
 
@@ -64,12 +89,19 @@ les rapides, et son architecture *transducer* peut émettre une sortie vide au
 lieu de forcer un token — il n'invente pas de texte sur les silences, contrairement
 à Whisper.
 
-Contrepartie : Parakeet détecte la langue seul et **on ne peut pas la forcer**.
-Sur un enregistrement long, il lui arrive de dériver vers l'anglais. Si ça te
-gêne, bascule sur `whisper-large-v3-turbo`, verrouillé en français.
+Parakeet détecte la langue seul et **on ne peut pas la forcer** — ce qui tombe
+bien pour du discours qui mélange français et anglais. Si tu préfères pouvoir
+verrouiller la langue, bascule sur `whisper-large-v3-turbo`.
 
 > À ne pas faire : passer `language="fr"` à Parakeet. Le texte est rigoureusement
 > identique et le temps de calcul est multiplié par 7,5. Vérifié, pas supposé.
+
+> À ne pas faire non plus : pré-télécharger un dépôt entier avec
+> `snapshot_download` pour afficher un pourcentage. onnx-asr et faster-whisper ne
+> prennent qu'une variante de quantification sur les cinq publiées — le dépôt
+> Parakeet pèse 3 Go là où 600 Mo suffisent. La progression est donc mesurée en
+> observant le cache grossir, et la barre reste indéterminée plutôt que
+> d'afficher un pourcentage faux.
 
 ### Ajouter ton propre modèle
 
@@ -97,12 +129,15 @@ backend/                 service Python (le modèle vit ici)
     audio.py             capture micro, tampon circulaire, pré-enregistrement
     engines/             moteurs interchangeables (Parakeet ONNX, faster-whisper)
     chunking.py          découpage sur les silences
+    media.py             lecture de tout fichier audio/vidéo (soundfile, ffmpeg)
+    download.py          progression de téléchargement par observation du cache
     service.py           orchestration micro → moteur → historique
     server.py            transport WebSocket (aucune logique métier)
     history.py           SQLite + recherche plein texte FTS5
+bin/ffmpeg.exe           décodage des formats que soundfile ne gère pas
 frontend/                application Tauri 2
   src/                   overlay + fenêtre principale (HTML/CSS/JS)
-  src-tauri/src/lib.rs   raccourci global, zone de notification, positionnement
+  src-tauri/src/lib.rs   raccourci global, zone de notification, service Python
 ```
 
 Le frontend ne parle au backend que par WebSocket sur `127.0.0.1:8756`.
@@ -118,5 +153,6 @@ sont écrites, le fichier reste lisible. L'historique est dans `history.db` à c
 ```powershell
 cd backend
 .\.venv\Scripts\python.exe scripts\smoke.py <fichier.wav> [id_modele ...]
-.\.venv\Scripts\python.exe scripts\ws_check.py 5
+.\.venv\Scripts\python.exe scripts\ws_check.py 5          # dictée micro réelle
+.\.venv\Scripts\python.exe scripts\file_check.py <fichier> # import de fichiers
 ```

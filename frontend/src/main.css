@@ -41,6 +41,95 @@ body {
   letter-spacing: 0.2px;
 }
 
+/* Bouton de dictee : le geste principal, donc le seul element colore. */
+.cta {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: var(--accent-grad);
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 500;
+  box-shadow: 0 3px 14px rgba(124, 92, 255, 0.34);
+  transition:
+    filter var(--fast) var(--ease),
+    transform var(--fast) var(--ease);
+}
+.cta:hover {
+  filter: brightness(1.1);
+}
+.cta:active {
+  transform: scale(0.975);
+}
+.cta.recording {
+  background: var(--danger);
+  box-shadow: 0 3px 14px rgba(255, 95, 109, 0.4);
+}
+.cta-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+}
+.cta.recording .cta-dot {
+  animation: breathe 1.4s ease-in-out infinite;
+}
+@keyframes breathe {
+  50% {
+    opacity: 0.35;
+  }
+}
+.cta kbd {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+/* Progression : telechargement de modele ou lot de fichiers. */
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 10px;
+}
+.progress-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+.progress-track {
+  height: 4px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.09);
+  overflow: hidden;
+}
+.progress-bar {
+  height: 100%;
+  width: 0;
+  border-radius: 99px;
+  background: var(--accent-grad);
+  transition: width 200ms var(--ease);
+}
+/* Largeur inconnue : on montre que ca avance sans mentir sur l'avancement. */
+.progress-bar.indeterminate {
+  width: 35% !important;
+  animation: slide 1.3s ease-in-out infinite;
+}
+@keyframes slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+
 .nav-item {
   padding: 9px 12px;
   border-radius: var(--r-sm);
@@ -351,6 +440,130 @@ body {
 }
 .model.active .check {
   opacity: 1;
+}
+
+/* -------------------------------------------------------------- fichiers */
+
+.drop {
+  flex: 0 0 auto;
+  margin-bottom: 16px;
+  border: 1.5px dashed var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  transition:
+    border-color var(--fast) var(--ease),
+    background var(--fast) var(--ease);
+}
+.drop.over {
+  border-color: var(--accent-1);
+  background: rgba(124, 92, 255, 0.09);
+}
+
+.drop-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 34px 20px;
+  text-align: center;
+}
+
+.drop-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--accent-grad);
+  opacity: 0.85;
+  margin-bottom: 2px;
+}
+
+.drop-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+.drop-sub {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  max-width: 54ch;
+  line-height: 1.5;
+}
+
+.btn-solid {
+  margin-top: 8px;
+  padding: 8px 18px;
+  border-radius: var(--r-sm);
+  background: var(--accent-grad);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  transition:
+    filter var(--fast) var(--ease),
+    transform var(--fast) var(--ease);
+}
+.btn-solid:hover {
+  filter: brightness(1.1);
+}
+.btn-solid:active {
+  transform: scale(0.97);
+}
+
+.jobs {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding-bottom: 28px;
+}
+
+.job {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 14px;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 12.5px;
+}
+.job .name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.job .state {
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.job.ok {
+  border-color: rgba(61, 220, 151, 0.35);
+}
+.job.ok .state {
+  color: var(--ok);
+}
+.job.ko {
+  border-color: rgba(255, 95, 109, 0.35);
+}
+.job.ko .state {
+  color: var(--danger);
+}
+.job .spin {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  border-top-color: var(--accent-2);
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* -------------------------------------------------------------- reglages */

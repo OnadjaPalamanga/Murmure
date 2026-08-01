@@ -67,6 +67,13 @@ async def _handle(command: dict[str, Any]) -> dict[str, Any] | None:
             service.cancel()
             return None
 
+        case "transcribe_files":
+            paths = command.get("paths", [])
+            if not paths:
+                return {"type": "error", "message": "Aucun fichier fourni."}
+            service.transcribe_files(paths)
+            return None
+
         case "set_model":
             model_id = command.get("model_id", "")
             status = await asyncio.to_thread(service.set_model, model_id)

@@ -13,7 +13,7 @@ from pathlib import Path
 
 from .engines.base import Engine
 from .engines.parakeet import ParakeetEngine
-from .engines.whisper import FRENCH_PROMPT, WhisperEngine
+from .engines.whisper import DICTATION_PROMPT, WhisperEngine
 from .paths import MODELS_DIR
 
 log = logging.getLogger(__name__)
@@ -28,6 +28,9 @@ class ModelSpec:
     blurb: str
     vram_mb: int
     languages: str
+    # Depot HuggingFace reel, pour pouvoir telecharger avec une barre de
+    # progression avant de confier le modele a la bibliotheque.
+    hf_repo: str = ""
     is_default: bool = False
     is_local: bool = False
     options: dict = field(default_factory=dict)
@@ -46,6 +49,7 @@ CATALOG: list[ModelSpec] = [
         "Architecture transducer : n'invente pas de texte sur les silences.",
         vram_mb=1200,
         languages="25 langues (dont FR), detection automatique",
+        hf_repo="istupakov/parakeet-tdt-0.6b-v3-onnx",
         is_default=True,
     ),
     ModelSpec(
@@ -57,7 +61,8 @@ CATALOG: list[ModelSpec] = [
         "francais et anglais dans la meme phrase.",
         vram_mb=1600,
         languages="99 langues",
-        options={"compute_type": "int8_float16", "language": "fr", "beam_size": 1},
+        hf_repo="mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+        options={"compute_type": "int8_float16", "beam_size": 1},
     ),
     ModelSpec(
         id="whisper-fr-distil-dec16",
@@ -68,7 +73,8 @@ CATALOG: list[ModelSpec] = [
         "16 couches. Meilleur sur les accents non hexagonaux.",
         vram_mb=1800,
         languages="francais",
-        options={"compute_type": "int8_float16", "language": "fr", "beam_size": 1},
+        hf_repo="Kelno/whisper-large-v3-french-distil-dec16-ct2",
+        options={"compute_type": "int8_float16", "beam_size": 1},
     ),
     ModelSpec(
         id="whisper-large-v3",
@@ -79,7 +85,8 @@ CATALOG: list[ModelSpec] = [
         "ou l'audio difficile, pas pour la dictee au vol.",
         vram_mb=3100,
         languages="99 langues",
-        options={"compute_type": "int8_float16", "language": "fr", "beam_size": 5},
+        hf_repo="Systran/faster-whisper-large-v3",
+        options={"compute_type": "int8_float16", "beam_size": 5},
     ),
 ]
 
@@ -161,9 +168,9 @@ def build_engine(spec: ModelSpec, *, prefer_gpu: bool = True) -> Engine:
             model_id=spec.id,
             repo=spec.source,
             compute_type=opts.get("compute_type", "int8_float16"),
-            language=opts.get("language", "fr"),
+            language=opts.get("language"),
             beam_size=int(opts.get("beam_size", 1)),
-            initial_prompt=opts.get("initial_prompt", FRENCH_PROMPT),
+            initial_prompt=opts.get("initial_prompt", DICTATION_PROMPT),
             vad_filter=bool(opts.get("vad_filter", True)),
             prefer_gpu=prefer_gpu,
             download_root=str(MODELS_DIR / "hub"),

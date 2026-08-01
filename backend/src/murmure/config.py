@@ -23,6 +23,9 @@ class Settings:
     model_id: str = "parakeet-tdt-0.6b-v3"
     prefer_gpu: bool = True
     preload_on_start: bool = True
+    # "auto" = detection automatique. Forcer une langue pousse le decodeur a
+    # traduire phonetiquement les mots de l'autre langue reellement prononces.
+    language: str = "auto"
 
     # --- audio ---
     input_device: int | None = None
@@ -31,7 +34,7 @@ class Settings:
     keep_audio: bool = False  # conserver le wav a cote de chaque entree
 
     # --- raccourci et comportement ---
-    hotkey: str = "Ctrl+Alt+D"
+    hotkey: str = "Ctrl+Space"
     hotkey_mode: str = "hold"  # "hold" (maintenir) | "toggle" (appuyer/re-appuyer)
     copy_to_clipboard: bool = True
     show_review_window: bool = True
