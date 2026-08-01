@@ -17,5 +17,25 @@ bin/
 
 # Donnees locales et personnelles
 *.db
+*.db-shm
+*.db-wal
 *.log
+recordings/
 _superwhisper_sauvegarde/
+
+# Caches d'outils
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+*.pyc
+
+# Editeurs et systeme
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+*~
+
+# Fichiers de travail temporaires
+*.tmp
+scratch/
