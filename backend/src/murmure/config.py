@@ -31,7 +31,7 @@ class Settings:
     keep_audio: bool = False  # conserver le wav a cote de chaque entree
 
     # --- raccourci et comportement ---
-    hotkey: str = "Ctrl+Alt+Space"
+    hotkey: str = "Ctrl+Alt+D"
     hotkey_mode: str = "hold"  # "hold" (maintenir) | "toggle" (appuyer/re-appuyer)
     copy_to_clipboard: bool = True
     show_review_window: bool = True

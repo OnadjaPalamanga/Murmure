@@ -7,7 +7,9 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
-const DEFAULT_HOTKEY: &str = "Ctrl+Alt+Space";
+/// Ctrl+Alt+Space est frequemment pris (SuperWhisper, entre autres) et
+/// l'enregistrement echoue alors silencieusement. On part sur plus discret.
+const DEFAULT_HOTKEY: &str = "Ctrl+Alt+D";
 
 /// Hauteurs de l'overlay selon la phase. L'ecoute est une pastille compacte ;
 /// la relecture doit laisser respirer plusieurs lignes de texte.
@@ -17,7 +19,15 @@ const OVERLAY_WIDTH: f64 = 460.0;
 /// Marge au-dessus de la barre des taches.
 const BOTTOM_MARGIN: f64 = 96.0;
 
-struct HotkeyState(Mutex<Option<Shortcut>>);
+#[derive(Default)]
+struct Hotkey {
+    current: Option<Shortcut>,
+    /// Dernier echec d'enregistrement, pour que l'UI puisse le signaler au lieu
+    /// de laisser croire que le raccourci fonctionne.
+    error: Option<String>,
+}
+
+struct HotkeyState(Mutex<Hotkey>);
 
 fn overlay(app: &AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window("overlay")
@@ -86,21 +96,43 @@ fn open_main(app: AppHandle, tab: Option<String>) {
 /// (Re)enregistre le raccourci global. Le precedent est libere d'abord.
 #[tauri::command]
 fn set_hotkey(app: AppHandle, accelerator: String) -> Result<(), String> {
-    let shortcut: Shortcut = accelerator.parse().map_err(|_| {
-        format!("Raccourci invalide : {accelerator}. Exemple attendu : Ctrl+Alt+Space")
-    })?;
-
     let state = app.state::<HotkeyState>();
-    let mut current = state.0.lock().map_err(|e| e.to_string())?;
+    let mut hotkey = state.0.lock().map_err(|e| e.to_string())?;
 
-    if let Some(previous) = current.take() {
-        let _ = app.global_shortcut().unregister(previous);
+    let result = (|| -> Result<Shortcut, String> {
+        let shortcut: Shortcut = accelerator.parse().map_err(|_| {
+            format!("Raccourci invalide : « {accelerator} ». Format attendu : Ctrl+Alt+D")
+        })?;
+
+        if let Some(previous) = hotkey.current.take() {
+            let _ = app.global_shortcut().unregister(previous);
+        }
+        app.global_shortcut().register(shortcut).map_err(|e| {
+            format!("« {accelerator} » est déjà utilisé par une autre application ({e}). Choisis-en un autre.")
+        })?;
+        Ok(shortcut)
+    })();
+
+    match result {
+        Ok(shortcut) => {
+            hotkey.current = Some(shortcut);
+            hotkey.error = None;
+            Ok(())
+        }
+        Err(message) => {
+            hotkey.error = Some(message.clone());
+            Err(message)
+        }
     }
-    app.global_shortcut()
-        .register(shortcut)
-        .map_err(|e| e.to_string())?;
-    *current = Some(shortcut);
-    Ok(())
+}
+
+/// L'UI interroge cet etat au chargement : la fenetre principale n'existe pas
+/// encore quand le raccourci par defaut est enregistre, un evenement serait perdu.
+#[tauri::command]
+fn hotkey_status(app: AppHandle) -> Result<Option<String>, String> {
+    let state = app.state::<HotkeyState>();
+    let hotkey = state.0.lock().map_err(|e| e.to_string())?;
+    Ok(hotkey.error.clone())
 }
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
@@ -152,18 +184,21 @@ pub fn run() {
                 })
                 .build(),
         )
-        .manage(HotkeyState(Mutex::new(None)))
+        .manage(HotkeyState(Mutex::new(Hotkey::default())))
         .invoke_handler(tauri::generate_handler![
             show_overlay,
             hide_overlay,
             resize_overlay,
             open_main,
-            set_hotkey
+            set_hotkey,
+            hotkey_status
         ])
         .setup(|app| {
             let handle = app.handle().clone();
             build_tray(&handle)?;
 
+            // L'echec est conserve dans HotkeyState et affiche par l'UI au
+            // chargement : un raccourci mort en silence est le pire des cas.
             if let Err(err) = set_hotkey(handle.clone(), DEFAULT_HOTKEY.into()) {
                 eprintln!("Raccourci par defaut non enregistre : {err}");
             }

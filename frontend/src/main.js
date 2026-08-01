@@ -24,12 +24,12 @@ listen("navigate", ({ payload }) => showTab(payload));
 // ------------------------------------------------------------------ toast
 
 let toastTimer = null;
-function toast(message) {
+function toast(message, ms = 1900) {
   const node = $("#toast");
   node.textContent = message;
   node.classList.add("show");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => node.classList.remove("show"), 1900);
+  toastTimer = setTimeout(() => node.classList.remove("show"), ms);
 }
 
 // -------------------------------------------------------------- historique
@@ -273,3 +273,12 @@ bus.on("final", () => refreshHistory());
 bus.on("error", ({ message }) => toast(message));
 
 bindSettings();
+
+// Un raccourci refuse (deja pris par une autre application) doit se voir :
+// sinon l'utilisateur appuie dans le vide sans comprendre pourquoi.
+invoke("hotkey_status").then((error) => {
+  if (!error) return;
+  showTab("settings");
+  $("#set-hotkey").style.borderColor = "var(--danger)";
+  toast(error, 9000);
+});
