@@ -67,16 +67,51 @@ body {
   padding: 0 20px;
 }
 
-.pulse {
+.record-control {
   flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  color: var(--text-faint);
+  cursor: default;
+  transition:
+    background var(--fast) var(--ease),
+    border-color var(--fast) var(--ease),
+    transform var(--fast) var(--ease);
+}
+.pulse {
   width: 12px;
   height: 12px;
   border-radius: 50%;
   background: var(--text-faint);
-  transition: background var(--fast) var(--ease);
+  transition:
+    background var(--fast) var(--ease),
+    border-radius var(--fast) var(--ease);
+}
+.card[data-state="recording"] .record-control,
+.card[data-state="streaming"] .record-control {
+  border-color: rgba(255, 95, 109, 0.24);
+  background: rgba(255, 95, 109, 0.1);
+  cursor: pointer;
+}
+.card[data-state="recording"] .record-control:hover,
+.card[data-state="streaming"] .record-control:hover,
+.card[data-state="recording"] .record-control:focus-visible,
+.card[data-state="streaming"] .record-control:focus-visible {
+  border-color: rgba(255, 95, 109, 0.48);
+  background: rgba(255, 95, 109, 0.2);
+  outline: none;
+}
+.card[data-state="recording"] .record-control:active,
+.card[data-state="streaming"] .record-control:active {
+  transform: scale(0.92);
 }
 .card[data-state="recording"] .pulse,
 .card[data-state="streaming"] .pulse {
+  border-radius: 3px;
   background: var(--danger);
   animation: breathe 1.5s ease-in-out infinite;
 }

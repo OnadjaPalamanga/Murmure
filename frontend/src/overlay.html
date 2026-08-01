@@ -12,7 +12,16 @@
 
       <!-- Bandeau compact : etat + forme d'onde + chrono -->
       <header class="strip" data-tauri-drag-region>
-        <div class="pulse" id="pulse" aria-hidden="true"></div>
+        <button
+          type="button"
+          class="record-control"
+          id="btn-stop"
+          aria-label="Arrêter la dictée"
+          title="Arrêter et transcrire"
+          disabled
+        >
+          <span class="pulse" aria-hidden="true"></span>
+        </button>
 
         <div class="wave" id="wave" aria-hidden="true"></div>
 

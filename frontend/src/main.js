@@ -90,6 +90,129 @@ function formatHistoryDuration(seconds) {
   return `${hours} h${minutes ? ` ${minutes} min` : ""} d'audio`;
 }
 
+function formatAudioTime(seconds) {
+  const total = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
+  const minutes = Math.floor(total / 60);
+  return `${minutes}:${String(total % 60).padStart(2, "0")}`;
+}
+
+const AUDIO_RATES = [1, 1.25, 1.5, 2];
+let audioPlaybackRate = 1;
+
+function formatAudioRate(rate) {
+  return `${String(rate).replace(".", ",")}×`;
+}
+
+function buildAudioPlayer(entry) {
+  const player = document.createElement("div");
+  player.className = "entry-player";
+  player.dataset.playing = "false";
+
+  const audio = document.createElement("audio");
+  audio.className = "entry-audio";
+  audio.preload = "metadata";
+  audio.src = `http://127.0.0.1:8756/audio/${encodeURIComponent(entry.id)}`;
+  audio.playbackRate = audioPlaybackRate;
+
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "audio-toggle";
+  toggle.setAttribute("aria-label", `Lire l'audio de la dictée du ${formatDate(entry.created_at)}`);
+  toggle.title = "Lire";
+  toggle.innerHTML = '<span class="audio-icon" aria-hidden="true"></span>';
+
+  const progress = document.createElement("input");
+  progress.type = "range";
+  progress.className = "audio-progress";
+  progress.min = "0";
+  progress.max = "1000";
+  progress.step = "1";
+  progress.value = "0";
+  progress.setAttribute("aria-label", "Position de lecture");
+
+  const time = document.createElement("output");
+  time.className = "audio-time";
+
+  const rate = document.createElement("button");
+  rate.type = "button";
+  rate.className = "audio-rate";
+  rate.textContent = formatAudioRate(audioPlaybackRate);
+  rate.title = "Changer la vitesse de lecture";
+  rate.setAttribute("aria-label", `Vitesse de lecture : ${formatAudioRate(audioPlaybackRate)}`);
+
+  const duration = () =>
+    Number.isFinite(audio.duration) && audio.duration > 0
+      ? audio.duration
+      : Number(entry.audio_seconds ?? 0);
+
+  const renderPosition = () => {
+    const total = duration();
+    const ratio = total > 0 ? Math.min(1, audio.currentTime / total) : 0;
+    progress.value = String(Math.round(ratio * 1000));
+    progress.style.setProperty("--audio-position", `${(ratio * 100).toFixed(2)}%`);
+    time.textContent = `${formatAudioTime(audio.currentTime)} / ${formatAudioTime(total)}`;
+  };
+
+  const renderPlayback = () => {
+    const playing = !audio.paused && !audio.ended;
+    player.dataset.playing = String(playing);
+    toggle.title = playing ? "Pause" : "Lire";
+    toggle.setAttribute(
+      "aria-label",
+      `${playing ? "Mettre en pause" : "Lire"} l'audio de la dictée du ${formatDate(entry.created_at)}`
+    );
+  };
+
+  toggle.addEventListener("click", () => {
+    if (audio.paused) {
+      $$("audio.entry-audio").forEach((other) => {
+        if (other !== audio) other.pause();
+      });
+      audio.play().catch(() => toast("Impossible de lire cet audio", 3500));
+    } else {
+      audio.pause();
+    }
+  });
+
+  progress.addEventListener("input", () => {
+    const total = duration();
+    if (total > 0) audio.currentTime = (Number(progress.value) / 1000) * total;
+    renderPosition();
+  });
+
+  rate.addEventListener("click", () => {
+    const index = AUDIO_RATES.indexOf(audioPlaybackRate);
+    audioPlaybackRate = AUDIO_RATES[(index + 1) % AUDIO_RATES.length];
+    $$("audio.entry-audio").forEach((item) => {
+      item.playbackRate = audioPlaybackRate;
+    });
+    $$(".audio-rate").forEach((item) => {
+      item.textContent = formatAudioRate(audioPlaybackRate);
+      item.setAttribute("aria-label", `Vitesse de lecture : ${formatAudioRate(audioPlaybackRate)}`);
+    });
+  });
+
+  audio.addEventListener("loadedmetadata", renderPosition);
+  audio.addEventListener("durationchange", renderPosition);
+  audio.addEventListener("timeupdate", renderPosition);
+  audio.addEventListener("play", renderPlayback);
+  audio.addEventListener("pause", renderPlayback);
+  audio.addEventListener("ended", () => {
+    audio.currentTime = 0;
+    renderPlayback();
+    renderPosition();
+  });
+  audio.addEventListener("error", () => {
+    toggle.disabled = true;
+    player.dataset.error = "true";
+    player.title = "Audio indisponible";
+  });
+
+  player.append(audio, toggle, progress, time, rate);
+  renderPosition();
+  return player;
+}
+
 function renderHistoryStats(stats = {}) {
   const count = Number(stats.count ?? 0);
   $("#history-count").textContent = `${count} dictée${count === 1 ? "" : "s"}`;
@@ -154,21 +277,10 @@ function renderHistory(entries) {
 
     const footer = document.createElement("div");
     footer.className = "entry-footer";
-    if (entry.audio_path) {
-      const audio = document.createElement("audio");
-      audio.className = "entry-audio";
-      audio.controls = true;
-      audio.preload = "metadata";
-      audio.src = `http://127.0.0.1:8756/audio/${encodeURIComponent(entry.id)}`;
-      audio.setAttribute("aria-label", `Audio de la dictée du ${formatDate(entry.created_at)}`);
-      audio.addEventListener("play", () => {
-        $$("audio.entry-audio").forEach((other) => {
-          if (other !== audio) other.pause();
-        });
-      });
-      footer.appendChild(audio);
-    }
     footer.appendChild(actions);
+    if (entry.audio_path) {
+      footer.appendChild(buildAudioPlayer(entry));
+    }
 
     card.append(top, text, footer);
     list.appendChild(card);

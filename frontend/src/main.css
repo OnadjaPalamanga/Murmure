@@ -391,20 +391,170 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 10px;
+  min-height: 26px;
+  margin-top: 8px;
 }
 .entry-audio {
-  width: min(300px, 100%);
-  height: 32px;
-  color-scheme: dark;
+  display: none;
 }
 .entry-footer .entry-actions {
   margin-top: 0;
+}
+.entry-footer .entry-actions:only-child {
   margin-left: auto;
 }
 .entry:hover .entry-actions,
 .entry.open .entry-actions {
   opacity: 1;
+}
+
+/* Lecteur volontairement compact : les controles natifs Windows imposaient une
+   grosse capsule et des actions secondaires qui dominaient chaque carte. */
+.entry-player {
+  --audio-position: 0%;
+  width: 252px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 2px 7px 2px 3px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--text-faint);
+  transition:
+    color var(--fast) var(--ease),
+    background var(--fast) var(--ease),
+    border-color var(--fast) var(--ease);
+}
+.entry-player:hover,
+.entry-player[data-playing="true"] {
+  border-color: var(--border);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-dim);
+}
+.entry-player[data-playing="true"] {
+  border-color: color-mix(in srgb, var(--accent-2) 28%, transparent);
+}
+.entry-player[data-error="true"] {
+  opacity: 0.45;
+}
+
+.audio-toggle {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-dim);
+  transition:
+    color var(--fast) var(--ease),
+    background var(--fast) var(--ease),
+    transform var(--fast) var(--ease);
+}
+.audio-toggle:hover,
+.entry-player[data-playing="true"] .audio-toggle {
+  background: color-mix(in srgb, var(--accent-2) 18%, transparent);
+  color: var(--text);
+}
+.audio-toggle:active {
+  transform: scale(0.92);
+}
+.audio-toggle:disabled {
+  cursor: not-allowed;
+}
+
+.audio-icon {
+  width: 0;
+  height: 0;
+  margin-left: 2px;
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  border-left: 5px solid currentColor;
+}
+.entry-player[data-playing="true"] .audio-icon {
+  width: 6px;
+  height: 8px;
+  margin-left: 0;
+  border: 0;
+  background: linear-gradient(
+    to right,
+    currentColor 0 29%,
+    transparent 29% 71%,
+    currentColor 71% 100%
+  );
+}
+
+.audio-progress {
+  width: 72px;
+  height: 10px;
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 0;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+.audio-progress::-webkit-slider-runnable-track {
+  height: 1.5px;
+  border-radius: 99px;
+  background: linear-gradient(
+    to right,
+    var(--accent-2) 0 var(--audio-position),
+    rgba(255, 255, 255, 0.13) var(--audio-position) 100%
+  );
+}
+.audio-progress::-webkit-slider-thumb {
+  width: 6px;
+  height: 6px;
+  margin-top: -2.25px;
+  appearance: none;
+  border: 0;
+  border-radius: 50%;
+  background: var(--text-dim);
+  opacity: 0;
+  transition: opacity var(--fast) var(--ease);
+}
+.entry-player:hover .audio-progress::-webkit-slider-thumb,
+.audio-progress:focus-visible::-webkit-slider-thumb {
+  opacity: 1;
+}
+.audio-progress:focus-visible {
+  outline: none;
+}
+
+.audio-time {
+  min-width: 61px;
+  color: currentColor;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.audio-rate {
+  min-width: 28px;
+  height: 18px;
+  flex: 0 0 auto;
+  padding: 0 3px;
+  border-radius: 5px;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  transition:
+    color var(--fast) var(--ease),
+    background var(--fast) var(--ease);
+}
+.audio-rate:hover,
+.audio-rate:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  outline: none;
 }
 
 .mini {
@@ -941,10 +1091,9 @@ select.input {
     width: 100%;
   }
   .entry-footer {
-    align-items: flex-end;
-    flex-direction: column;
+    flex-wrap: wrap;
   }
-  .entry-audio {
-    width: 100%;
+  .entry-player {
+    width: min(252px, 100%);
   }
 }

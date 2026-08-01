@@ -20,6 +20,7 @@ const el = {
   badge: document.getElementById("badge"),
   copy: document.getElementById("btn-copy"),
   redo: document.getElementById("btn-redo"),
+  stop: document.getElementById("btn-stop"),
   close: document.getElementById("btn-close"),
 };
 
@@ -81,6 +82,7 @@ function resetWave() {
 function setState(next, hint) {
   state = next;
   el.card.dataset.state = next;
+  el.stop.disabled = next !== "recording" && next !== "streaming";
   if (hint !== undefined) el.hint.textContent = hint;
 }
 
@@ -139,6 +141,7 @@ async function beginDictation() {
 function endDictation() {
   if (state !== "recording" && state !== "streaming") return;
   stopTicking();
+  toggleActive = false;
   setState("transcribing", isContinuous() ? "Dernière phrase…" : "Transcription…");
   bus.send("stop");
 }
@@ -333,6 +336,7 @@ el.copy.addEventListener("click", async () => {
 });
 
 el.redo.addEventListener("click", beginDictation);
+el.stop.addEventListener("click", endDictation);
 el.close.addEventListener("click", closeOverlay);
 
 // Editer le texte suspend la fermeture automatique : on ne ferme pas
