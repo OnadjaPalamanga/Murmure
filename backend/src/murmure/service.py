@@ -24,12 +24,38 @@ from .history import History
 from .media import AUDIO_EXT, VIDEO_EXT, find_ffmpeg, load_audio
 from .models import build_engine, get_spec, list_models
 from .paths import AUDIO_DIR, MODELS_DIR
+from .streaming import PhraseStreamer, normalise_for_engine
 
 log = logging.getLogger(__name__)
 
 # En dessous, c'est un declenchement accidentel : on ne transcrit pas.
 MIN_AUDIO_S = 0.25
 SILENCE_PEAK = 0.005
+
+# Confiance exigee pour figer la langue d'une dictee continue (voir
+# `_remember_language`).
+LANGUAGE_PIN_CONFIDENCE = 0.85
+
+
+def _echoes_prompt(text: str, prompt: str | None) -> bool:
+    """Le modele a-t-il recopie son amorce au lieu de transcrire ?
+
+    Whisper imite le style de son amorce ; sur une phrase courte il lui arrive
+    de la restituer telle quelle. Mesure sur `whisper-base-cpu` : une phrase de
+    2,5 s a rendu « Voici une note dictee, ponctuee normalement, avec majuscules
+    et virgules. » — l'amorce, mot pour mot. En dictee continue ce texte serait
+    frappe dans le document de l'utilisateur.
+
+    Le seuil de longueur evite de jeter un vrai « Voici. » qui se trouverait
+    etre un prefixe de l'amorce.
+    """
+    if not prompt or len(text) < 20:
+        return False
+
+    def flatten(value: str) -> str:
+        return " ".join("".join(c if c.isalnum() else " " for c in value.lower()).split())
+
+    return flatten(text) in flatten(prompt)
 
 
 class Service:
@@ -52,6 +78,11 @@ class Service:
         )
         self.state = "idle"
         self._level_throttle = 0.0
+        self._streamer: PhraseStreamer | None = None
+        # Somme des temps moteur des phrases, et langue detectee sur la premiere
+        # phrase consequente : seul le thread du streamer y touche.
+        self._stream_latency_ms = 0
+        self._stream_language: str | None = None
 
     # ------------------------------------------------------- evenements
 
@@ -195,17 +226,27 @@ class Service:
         self.recorder.open()
 
     def start(self) -> None:
-        if self.state == "recording":
+        if self.state in ("recording", "streaming"):
+            return
+        if self.config.settings.dictation_mode == "continu":
+            self._start_stream()
             return
         self.recorder.start()
         self._set_state("recording")
 
     def cancel(self) -> None:
+        streamer, self._streamer = self._streamer, None
         self.recorder.cancel()
+        self.recorder.on_block = None
+        if streamer is not None:
+            streamer.cancel()
         self._set_state("idle")
 
     def stop_and_transcribe(self) -> None:
         """Termine la dictee et lance la transcription dans un thread."""
+        if self.state == "streaming":
+            self._stop_stream()
+            return
         if self.state != "recording":
             return
         audio = self.recorder.stop()
@@ -251,6 +292,142 @@ class Service:
             )
         except Exception as exc:  # noqa: BLE001
             log.exception("Echec de la transcription")
+            self._set_state("idle")
+            self.emit({"type": "error", "message": str(exc)})
+
+    # -------------------------------------------------------- dictee continue
+
+    def _start_stream(self) -> None:
+        """Dictee continue : les phrases partent au moteur au fil de la parole."""
+        settings = self.config.settings
+        self._stream_latency_ms = 0
+        self._stream_language = None
+
+        streamer = PhraseStreamer(
+            transcribe=self._transcribe_phrase,
+            on_phrase=lambda text, index: self.emit(
+                {"type": "commit", "text": text, "index": index}
+            ),
+            # Charge le modele des le declenchement, en parallele des premiers
+            # mots, au lieu de faire payer le chargement a la premiere phrase.
+            prepare=self.ensure_engine,
+            on_activity=lambda speaking: self.emit({"type": "speech", "speaking": speaking}),
+            on_error=lambda exc: self.emit({"type": "error", "message": str(exc)}),
+            silence_ms=settings.phrase_silence_ms,
+            max_phrase_s=settings.max_phrase_s,
+        )
+        streamer.start()
+        self._streamer = streamer
+
+        # Avant `start()` : c'est lui qui pousse le pre-roll au consommateur.
+        self.recorder.on_block = streamer.feed
+        self.recorder.start()
+        self._set_state("streaming")
+
+    def _transcribe_phrase(self, audio: np.ndarray) -> str:
+        """Transcrit une phrase. Appele en serie par l'unique thread du streamer."""
+        if audio.size and float(np.abs(audio).max()) < SILENCE_PEAK:
+            return ""
+        engine = self.ensure_engine()
+        result = engine.transcribe(
+            normalise_for_engine(audio),
+            language=self._resolved_language() or self._stream_language,
+        )
+        self._remember_language(result, len(audio) / SAMPLE_RATE)
+        self._stream_latency_ms += result.latency_ms
+
+        text = self._post_process(result.text)
+        # Sur un souffle ou une syllabe isolee, Whisper rend volontiers « ... »,
+        # « - » ou « Merci. ». En differe c'est noye dans le reste ; en continu
+        # ce serait frappe tel quel dans le document. Une phrase sans aucune
+        # lettre ni chiffre n'a rien a y faire.
+        if not any(ch.isalnum() for ch in text):
+            return ""
+        if _echoes_prompt(text, getattr(engine, "initial_prompt", None)):
+            log.info("Phrase ignoree : le modele a recopie son amorce")
+            return ""
+        return text
+
+    def _remember_language(self, result, seconds: float) -> None:
+        """Fige la langue detectee pour le reste de la dictee.
+
+        En differe, une dictee entiere donne lieu a UNE detection. En continu,
+        detecter phrase par phrase fait derailler les petits modeles : sur une
+        dictee francaise de 20 s, `whisper-small-cpu` a rendu « Уплиток, мюрмюр »
+        puis du roumain. Detecter une fois par dictee, ce n'est pas forcer la
+        langue — c'est retrouver la granularite du mode differe.
+
+        Parakeet et Canary ne rapportent jamais de langue detectee : ils
+        renvoient celle qu'on leur passe. Rien ne s'epingle donc pour eux, et
+        leur detection interne reste intacte.
+        """
+        if self._stream_language is not None or seconds < 2.0:
+            return
+        language = getattr(result, "language", None)
+        confidence = (getattr(result, "extra", None) or {}).get("language_probability", 0.0)
+        # Seuil haut : figer une detection douteuse est pire que ne rien figer.
+        # Sur la meme dictee francaise, `small` annonce fr a 0,98 et `base`
+        # annonce ro a 0,73 — la barre passe entre les deux.
+        if language and confidence >= LANGUAGE_PIN_CONFIDENCE:
+            self._stream_language = language
+            log.info("Dictee continue : langue fixee sur %s (%.0f%%)", language, confidence * 100)
+
+    def _stop_stream(self) -> None:
+        audio = self.recorder.stop()
+        self.recorder.on_block = None
+        streamer, self._streamer = self._streamer, None
+        if streamer is None:
+            self._set_state("idle")
+            return
+
+        # La derniere phrase est encore au moteur : on le dit, plutot que de
+        # laisser croire que la dictee est finie alors qu'il manque une ligne.
+        self._set_state("transcribing", audio_seconds=round(len(audio) / SAMPLE_RATE, 2))
+        threading.Thread(
+            target=self._stream_finish_worker, args=(streamer, audio), daemon=True
+        ).start()
+
+    def _stream_finish_worker(self, streamer: PhraseStreamer, audio: np.ndarray) -> None:
+        try:
+            text = " ".join(p for p in streamer.finish() if p).strip()
+            if not text:
+                self._set_state("idle")
+                self.emit({"type": "empty", "reason": "aucune parole detectee"})
+                return
+
+            audio_seconds = len(audio) / SAMPLE_RATE
+            latency_ms = self._stream_latency_ms
+            audio_path = self._save_audio(audio) if self.config.settings.keep_audio else None
+            device = self._engine.device if self._engine else "cpu"
+
+            # Une entree d'historique par dictee, pas une par phrase : c'est la
+            # dictee que l'utilisateur voudra retrouver, pas ses fragments.
+            entry = self.history.add(
+                text=text,
+                model_id=self.model_id,
+                device=device,
+                audio_seconds=audio_seconds,
+                latency_ms=latency_ms,
+                audio_path=audio_path,
+            )
+
+            self._set_state("idle")
+            self.emit(
+                {
+                    "type": "final",
+                    "entry": entry,
+                    "latency_ms": latency_ms,
+                    "realtime_factor": round(audio_seconds / (latency_ms / 1000), 1)
+                    if latency_ms
+                    else 0.0,
+                    "device": device,
+                    # Le texte a deja ete transmis phrase par phrase : l'overlay
+                    # ne doit pas le reinjecter une seconde fois au curseur.
+                    "streamed": True,
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.exception("Fin de dictee continue en echec")
             self._set_state("idle")
             self.emit({"type": "error", "message": str(exc)})
 
@@ -390,6 +567,9 @@ class Service:
         return self.snapshot()
 
     def shutdown(self) -> None:
+        if self._streamer is not None:
+            self._streamer.cancel()
+            self._streamer = None
         self.recorder.close()
         with self._engine_lock:
             if self._engine is not None:

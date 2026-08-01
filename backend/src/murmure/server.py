@@ -8,10 +8,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse
 
 from .service import Service
 
@@ -37,6 +38,16 @@ app = FastAPI(title="Murmure", lifespan=lifespan)
 @app.get("/health")
 async def health() -> JSONResponse:
     return JSONResponse({"ok": True, "state": service.state, **service.engine_status()})
+
+
+@app.get("/audio/{entry_id}")
+async def history_audio(entry_id: str) -> FileResponse:
+    """Diffuse uniquement le fichier rattache a une entree connue de l'historique."""
+    entry = await asyncio.to_thread(service.history.get, entry_id)
+    path = Path(entry["audio_path"]) if entry and entry.get("audio_path") else None
+    if path is None or not path.is_file():
+        raise HTTPException(status_code=404, detail="Audio introuvable")
+    return FileResponse(path)
 
 
 async def _handle(command: dict[str, Any]) -> dict[str, Any] | None:
@@ -91,7 +102,13 @@ async def _handle(command: dict[str, Any]) -> dict[str, Any] | None:
                 limit=int(command.get("limit", 100)),
                 offset=int(command.get("offset", 0)),
             )
-            return {"type": "history", "entries": entries, "query": command.get("query", "")}
+            stats = await asyncio.to_thread(service.history.stats)
+            return {
+                "type": "history",
+                "entries": entries,
+                "stats": stats,
+                "query": command.get("query", ""),
+            }
 
         case "history_update":
             await asyncio.to_thread(
@@ -107,7 +124,8 @@ async def _handle(command: dict[str, Any]) -> dict[str, Any] | None:
 
         case "history_delete":
             await asyncio.to_thread(service.history.delete, command["id"])
-            return {"type": "history_deleted", "id": command["id"]}
+            stats = await asyncio.to_thread(service.history.stats)
+            return {"type": "history_deleted", "id": command["id"], "stats": stats}
 
         case _:
             return {"type": "error", "message": f"Commande inconnue : {kind}"}

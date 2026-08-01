@@ -165,4 +165,7 @@ class WhisperEngine:
             audio_seconds=len(audio) / SAMPLE_RATE,
             latency_ms=latency_ms,
             device=self.device,
+            # La dictee continue s'en sert pour ne detecter la langue qu'une
+            # fois par dictee, au lieu d'une fois par phrase.
+            extra={"language_probability": float(getattr(info, "language_probability", 0.0) or 0.0)},
         )

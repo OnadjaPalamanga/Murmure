@@ -15,10 +15,6 @@
           <kbd id="cta-hotkey"></kbd>
         </button>
 
-        <button class="nav-item active" data-tab="history">
-          <span class="icon icon-history" aria-hidden="true"></span>
-          <span>Historique</span>
-        </button>
         <button class="nav-item" data-tab="files">
           <span class="icon icon-files" aria-hidden="true"></span>
           <span>Fichiers</span>
@@ -26,6 +22,10 @@
         <button class="nav-item" data-tab="models">
           <span class="icon icon-models" aria-hidden="true"></span>
           <span>Modèles</span>
+        </button>
+        <button class="nav-item active" data-tab="history">
+          <span class="icon icon-history" aria-hidden="true"></span>
+          <span>Historique</span>
         </button>
         <button class="nav-item" data-tab="settings">
           <span class="icon icon-settings" aria-hidden="true"></span>
@@ -51,7 +51,18 @@
         <!-- ------------------------------------------------ Historique -->
         <section class="panel active" data-panel="history">
           <header class="panel-head">
-            <h1>Historique</h1>
+            <div class="history-heading">
+              <h1>Historique</h1>
+              <div class="history-summary" id="history-summary" aria-live="polite">
+                <span id="history-count">0 dictée</span>
+                <span class="summary-separator" aria-hidden="true"></span>
+                <span id="history-duration">0 s d'audio</span>
+              </div>
+              <button class="btn-outline" id="btn-audio-folder" type="button">
+                <span class="icon icon-folder" aria-hidden="true"></span>
+                <span>Dossier audio</span>
+              </button>
+            </div>
             <input
               type="search"
               id="search"
@@ -174,6 +185,51 @@
             </fieldset>
 
             <fieldset>
+              <legend>Mode de dictée</legend>
+
+              <label class="row">
+                <span class="label">
+                  Quand le texte arrive
+                  <em
+                    >Différé : tu parles, le texte arrive d'un bloc, tu le relis avant de
+                    l'utiliser. Continu : chaque phrase tombe dès que tu la termines — plus
+                    de relecture, mais tu vois ce que le modèle a compris pendant que tu
+                    parles.</em
+                  >
+                </span>
+                <select id="set-dictation_mode" class="input">
+                  <option value="differe">Différé — relecture (recommandé)</option>
+                  <option value="continu">Continu — phrase par phrase</option>
+                </select>
+              </label>
+
+              <label class="row switch">
+                <span class="label">
+                  Écrire au curseur
+                  <em
+                    >Chaque phrase validée est frappée dans l'application au premier plan.
+                    Une application lancée en administrateur refusera la frappe.</em
+                  >
+                </span>
+                <input type="checkbox" id="set-inject_at_cursor" />
+              </label>
+
+              <label class="row">
+                <span class="label">
+                  Silence de fin de phrase
+                  <em
+                    >Trop court, une hésitation coupe la phrase en deux et le modèle perd le
+                    contexte. Trop long, le texte se fait attendre.</em
+                  >
+                </span>
+                <span class="range">
+                  <input type="range" id="set-phrase_silence_ms" min="400" max="1500" step="50" />
+                  <output id="out-phrase_silence_ms"></output>
+                </span>
+              </label>
+            </fieldset>
+
+            <fieldset>
               <legend>Langue</legend>
 
               <label class="row">
@@ -277,6 +333,19 @@
         </section>
       </main>
     </div>
+
+    <dialog class="confirm-dialog" id="delete-dialog">
+      <form method="dialog">
+        <h2>Supprimer cette dictée ?</h2>
+        <p id="delete-message">
+          Cette entrée sera retirée de l'historique. Cette action est définitive.
+        </p>
+        <div class="dialog-actions">
+          <button class="btn-outline" value="cancel">Annuler</button>
+          <button class="btn-danger" id="btn-confirm-delete" value="confirm">Supprimer</button>
+        </div>
+      </form>
+    </dialog>
 
     <div class="toast" id="toast"></div>
     <script type="module" src="main.js"></script>

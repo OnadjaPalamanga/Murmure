@@ -14,7 +14,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .paths import HISTORY_DB
+from .paths import AUDIO_DIR, HISTORY_DB
 
 log = logging.getLogger(__name__)
 
@@ -145,7 +145,12 @@ class History:
             self._conn.execute("DELETE FROM entries WHERE id = ?", (entry_id,))
             self._conn.commit()
         if row and row["audio_path"]:
-            Path(row["audio_path"]).unlink(missing_ok=True)
+            audio_path = Path(row["audio_path"]).resolve()
+            # Les fichiers importes restent la propriete de l'utilisateur. Seuls
+            # les enregistrements crees dans le dossier gere par Murmure sont
+            # supprimes avec leur entree d'historique.
+            if audio_path.is_relative_to(AUDIO_DIR.resolve()):
+                audio_path.unlink(missing_ok=True)
 
     def stats(self) -> dict:
         with self._lock:

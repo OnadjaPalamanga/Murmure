@@ -13,6 +13,7 @@ from dataclasses import asdict, dataclass, fields
 from typing import Any
 
 from .paths import CONFIG_FILE
+from .streaming import MAX_PHRASE_S, SILENCE_MS
 
 log = logging.getLogger(__name__)
 
@@ -39,6 +40,21 @@ class Settings:
     copy_to_clipboard: bool = True
     show_review_window: bool = True
     play_sounds: bool = True
+
+    # --- dictee continue ---
+    # "differe" : on parle, puis le texte arrive d'un bloc, relisible avant
+    # insertion. "continu" : le texte tombe phrase par phrase pendant qu'on
+    # parle. Le differe reste le defaut, c'est lui qui protege le texte qui
+    # compte — en continu il n'y a plus de relecture avant que ce soit ecrit.
+    dictation_mode: str = "differe"  # "differe" | "continu"
+    # Frappe le texte a l'endroit du curseur, dans l'application au premier plan.
+    inject_at_cursor: bool = False
+    # Duree de silence qui marque la fin d'une phrase, et duree au-dela de
+    # laquelle on coupe meme sans silence — sinon un monologue ne sort jamais.
+    # Les valeurs viennent de `streaming` : les dupliquer ici a deja produit un
+    # service qui tournait avec un reglage different de celui qu'on mesurait.
+    phrase_silence_ms: int = SILENCE_MS
+    max_phrase_s: float = MAX_PHRASE_S
 
     # --- mise en forme ---
     trim_trailing_period: bool = False

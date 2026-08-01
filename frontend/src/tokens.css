@@ -7,7 +7,7 @@
   --accent-2: #4f8cff;
   --accent-grad: linear-gradient(135deg, #e052c8 0%, #7b5cff 54%, #4f8cff 100%);
 
-  --bg: rgb(12 12 18 / var(--window-alpha));
+  --bg: rgb(48 48 52 / var(--window-alpha));
   --sidebar-bg: rgb(18 18 26 / var(--sidebar-alpha));
   --surface: rgba(22, 22, 29, 0.94);
   --surface-2: rgba(30, 30, 40, 0.96);

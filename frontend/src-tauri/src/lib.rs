@@ -1,3 +1,5 @@
+mod inject;
+
 use std::path::PathBuf;
 use std::process::Child;
 use std::sync::Mutex;
@@ -118,15 +120,19 @@ fn position_overlay(win: &WebviewWindow, height: f64) {
     ));
 }
 
+/// `review` regle la hauteur, `focus` dit si l'on prend la main. Les deux vont
+/// ensemble sauf en dictee continue, ou l'overlay doit etre haut pour montrer le
+/// texte qui s'accumule tout en laissant le curseur dans le document — c'est
+/// justement la qu'on est en train d'ecrire.
 #[tauri::command]
-fn show_overlay(app: AppHandle, review: bool) {
+fn show_overlay(app: AppHandle, review: bool, focus: Option<bool>) {
     if let Some(win) = overlay(&app) {
         position_overlay(&win, if review { H_REVIEW } else { H_LISTENING });
         let _ = win.show();
         // Pendant l'ecoute on ne vole pas le focus : l'application dans laquelle
         // l'utilisateur travaille doit garder son curseur. En relecture au
         // contraire, il faut pouvoir editer et copier tout de suite.
-        if review {
+        if focus.unwrap_or(review) {
             let _ = win.set_focus();
         }
     }
@@ -137,6 +143,23 @@ fn hide_overlay(app: AppHandle) {
     if let Some(win) = overlay(&app) {
         let _ = win.hide();
     }
+}
+
+#[tauri::command]
+fn open_audio_folder() -> Result<(), String> {
+    let app_data = std::env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .ok_or_else(|| "Dossier de donnees Windows introuvable".to_string())?;
+    let audio_dir = app_data.join("Murmure").join("audio");
+    std::fs::create_dir_all(&audio_dir).map_err(|err| err.to_string())?;
+
+    #[cfg(target_os = "windows")]
+    std::process::Command::new("explorer.exe")
+        .arg(&audio_dir)
+        .spawn()
+        .map_err(|err| err.to_string())?;
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -157,6 +180,14 @@ fn trigger_dictation(app: AppHandle) {
         // mode configure, puisqu'il n'y a pas de touche a relacher ici.
         let _ = win.emit("hotkey", "toggle");
     }
+}
+
+/// Frappe une phrase validee a l'endroit du curseur. Retourne `false` si le
+/// focus etait sur Murmure lui-meme : l'appelant retombe alors sur le
+/// presse-papier plutot que de taper dans sa propre fenetre.
+#[tauri::command]
+fn type_text(text: String) -> Result<bool, String> {
+    inject::type_text(&text)
 }
 
 #[tauri::command]
@@ -280,11 +311,13 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             show_overlay,
             hide_overlay,
+            open_audio_folder,
             resize_overlay,
             open_main,
             trigger_dictation,
             set_hotkey,
-            hotkey_status
+            hotkey_status,
+            type_text
         ])
         .setup(|app| {
             let handle = app.handle().clone();

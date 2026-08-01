@@ -38,14 +38,14 @@
         "transparent": true,
         "windowEffects": {
           "effects": ["acrylic"],
-          "color": [12, 12, 18, 204]
+          "color": [48, 48, 52, 204]
         },
         "visible": true,
         "center": true
       }
     ],
     "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ws://127.0.0.1:8756 http://127.0.0.1:8756"
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src 'self' ws://127.0.0.1:8756 http://127.0.0.1:8756; media-src 'self' http://127.0.0.1:8756"
     }
   },
   "bundle": {

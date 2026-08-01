@@ -61,7 +61,40 @@ function toast(message, ms = 1900) {
   toastTimer = setTimeout(() => node.classList.remove("show"), ms);
 }
 
+let pendingDelete = null;
+const deleteDialog = $("#delete-dialog");
+
+function requestDelete(entry) {
+  pendingDelete = entry;
+  $("#delete-message").textContent = entry.audio_path
+    ? "L'entrée sera retirée de l'historique. Si l'audio a été enregistré par Murmure, sa copie locale sera également supprimée."
+    : "Cette entrée sera retirée de l'historique. Cette action est définitive.";
+  deleteDialog.showModal();
+}
+
+deleteDialog.addEventListener("close", () => {
+  if (deleteDialog.returnValue === "confirm" && pendingDelete) {
+    bus.send("history_delete", { id: pendingDelete.id });
+  }
+  pendingDelete = null;
+});
+
 // -------------------------------------------------------------- historique
+
+function formatHistoryDuration(seconds) {
+  const total = Math.max(0, Math.round(seconds ?? 0));
+  if (total < 60) return `${total} s d'audio`;
+  if (total < 3600) return `${Math.round(total / 60)} min d'audio`;
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.round((total % 3600) / 60);
+  return `${hours} h${minutes ? ` ${minutes} min` : ""} d'audio`;
+}
+
+function renderHistoryStats(stats = {}) {
+  const count = Number(stats.count ?? 0);
+  $("#history-count").textContent = `${count} dictée${count === 1 ? "" : "s"}`;
+  $("#history-duration").textContent = formatHistoryDuration(stats.total_audio_seconds);
+}
 
 function renderHistory(entries) {
   const list = $("#history-list");
@@ -115,10 +148,29 @@ function renderHistory(entries) {
     const del = document.createElement("button");
     del.className = "mini danger";
     del.textContent = "Supprimer";
-    del.addEventListener("click", () => bus.send("history_delete", { id: entry.id }));
+    del.addEventListener("click", () => requestDelete(entry));
 
     actions.append(copy, pin, del);
-    card.append(top, text, actions);
+
+    const footer = document.createElement("div");
+    footer.className = "entry-footer";
+    if (entry.audio_path) {
+      const audio = document.createElement("audio");
+      audio.className = "entry-audio";
+      audio.controls = true;
+      audio.preload = "metadata";
+      audio.src = `http://127.0.0.1:8756/audio/${encodeURIComponent(entry.id)}`;
+      audio.setAttribute("aria-label", `Audio de la dictée du ${formatDate(entry.created_at)}`);
+      audio.addEventListener("play", () => {
+        $$("audio.entry-audio").forEach((other) => {
+          if (other !== audio) other.pause();
+        });
+      });
+      footer.appendChild(audio);
+    }
+    footer.appendChild(actions);
+
+    card.append(top, text, footer);
     list.appendChild(card);
   }
 }
@@ -134,19 +186,13 @@ $("#search").addEventListener("input", () => {
 
 // ------------------------------------------------------------------ modeles
 
-// Le curseur vitesse/qualité, du plus léger au plus exact. « Léger » n'est pas
-// le bas du curseur mais un axe à part : ces modèles visent une machine sans
-// carte graphique, où le reste du catalogue est inutilisable.
+// Le catalogue commence par les modeles les plus puissants, qui sont le choix
+// naturel sur une machine equipee d'une carte graphique.
 const TIERS = [
   {
-    id: "leger",
-    name: "Sans carte graphique",
-    hint: "Tourne sur le processeur seul, bridé à 4 cœurs pour laisser la machine réactive.",
-  },
-  {
-    id: "rapide",
-    name: "Rapide",
-    hint: "Réponse quasi immédiate, qualité correcte. Pour la dictée au fil de l'eau.",
+    id: "qualite",
+    name: "Qualité maximale",
+    hint: "Le plus exact. Quelques secondes de plus, à réserver aux enregistrements qui comptent.",
   },
   {
     id: "equilibre",
@@ -154,9 +200,14 @@ const TIERS = [
     hint: "Un peu plus lent, nettement plus fiable sur l'audio difficile.",
   },
   {
-    id: "qualite",
-    name: "Qualité maximale",
-    hint: "Le plus exact. Quelques secondes de plus, à réserver aux enregistrements qui comptent.",
+    id: "rapide",
+    name: "Rapide",
+    hint: "Réponse quasi immédiate, qualité correcte. Pour la dictée au fil de l'eau.",
+  },
+  {
+    id: "leger",
+    name: "Sans carte graphique",
+    hint: "Tourne sur le processeur seul, bridé à 4 cœurs pour laisser la machine réactive.",
   },
 ];
 
@@ -205,7 +256,8 @@ function renderModels(models, activeId, engine) {
 
   // Les modèles déposés à la main n'ont pas de niveau : ils vont dans leur
   // propre section plutôt que d'être rangés arbitrairement.
-  const groups = [...TIERS, { id: null, name: "Tes modèles", hint: "Déposés dans models/." }];
+  const custom = { id: null, name: "Tes modèles", hint: "Déposés dans models/." };
+  const groups = [...TIERS.slice(0, -1), custom, TIERS.at(-1)];
 
   for (const tier of groups) {
     const inTier = models.filter((m) =>
@@ -245,9 +297,12 @@ const FIELDS = [
   "trim_trailing_period",
   "prefer_gpu",
   "preload_on_start",
+  "dictation_mode",
+  "inject_at_cursor",
+  "phrase_silence_ms",
 ];
 
-const UNITS = { preroll_ms: "ms", mic_keepalive_s: "s" };
+const UNITS = { preroll_ms: "ms", mic_keepalive_s: "s", phrase_silence_ms: "ms" };
 
 function readField(name) {
   const node = document.getElementById(`set-${name}`);
@@ -267,6 +322,27 @@ function writeField(name, value) {
   if (out) out.textContent = `${node.value} ${UNITS[name] ?? ""}`.trim();
 }
 
+/// Les reglages qui n'ont plus de sens en dictee continue sont grises plutot
+/// que retires : voir pourquoi ils sont inactifs vaut mieux que les voir
+/// disparaitre. « Maintenir la touche » notamment est force en bascule, sans
+/// quoi le Ctrl reste enfonce pendant qu'on frappe le texte.
+function reflectDictationMode() {
+  const continuous = document.getElementById("set-dictation_mode").value === "continu";
+
+  const hotkeyMode = document.getElementById("set-hotkey_mode");
+  hotkeyMode.disabled = continuous;
+  hotkeyMode.closest(".row").dataset.inactive = String(continuous);
+  hotkeyMode.closest(".row").title = continuous
+    ? "En dictée continue, le raccourci fonctionne toujours en appuyer / ré-appuyer."
+    : "";
+
+  for (const name of ["inject_at_cursor", "phrase_silence_ms"]) {
+    const node = document.getElementById(`set-${name}`);
+    node.disabled = !continuous;
+    node.closest(".row").dataset.inactive = String(!continuous);
+  }
+}
+
 function bindSettings() {
   for (const name of FIELDS) {
     const node = document.getElementById(`set-${name}`);
@@ -280,6 +356,8 @@ function bindSettings() {
 
       const value = readField(name);
       bus.send("update_settings", { settings: { [name]: value } });
+
+      if (name === "dictation_mode") reflectDictationMode();
 
       if (name === "hotkey") {
         invoke("set_hotkey", { accelerator: value })
@@ -400,6 +478,10 @@ $("#btn-pick").addEventListener("click", async () => {
   submitFiles(Array.isArray(selected) ? selected : selected ? [selected] : []);
 });
 
+$("#btn-audio-folder").addEventListener("click", () => {
+  invoke("open_audio_folder").catch((err) => toast(`Dossier audio : ${err}`, 5000));
+});
+
 // Glisser-deposer : Tauri fournit les vrais chemins disque, contrairement a
 // l'API fichier du navigateur.
 const drop = $("#drop");
@@ -423,6 +505,7 @@ bus.on("snapshot", (msg) => {
   renderModels(msg.models, msg.settings.model_id, msg.engine);
   renderDevices(msg.devices, msg.settings.input_device);
   for (const name of FIELDS) writeField(name, msg.settings[name]);
+  reflectDictationMode();
 
   $("#cta-hotkey").textContent = msg.settings.hotkey;
 
@@ -432,6 +515,7 @@ bus.on("snapshot", (msg) => {
     : `Audio : ${mediaExt.audio.join(", ")} (ffmpeg absent : vidéos indisponibles)`;
 
   updateSidebarMeta(msg);
+  renderHistoryStats(msg.stats);
   updateEngineStatus(msg.engine);
   refreshHistory();
 });
@@ -451,9 +535,13 @@ function updateEngineStatus(engine) {
   }
 }
 
-bus.on("history", ({ entries }) => renderHistory(entries));
+bus.on("history", ({ entries, stats }) => {
+  renderHistory(entries);
+  renderHistoryStats(stats);
+});
 bus.on("history_updated", refreshHistory);
-bus.on("history_deleted", () => {
+bus.on("history_deleted", ({ stats }) => {
+  renderHistoryStats(stats);
   refreshHistory();
   toast("Dictée supprimée");
 });

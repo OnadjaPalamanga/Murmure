@@ -78,11 +78,15 @@ class Recorder:
         preroll_ms: int = PREROLL_MS,
         keepalive_s: float = KEEPALIVE_S,
         on_level=None,
+        on_block=None,
     ) -> None:
         self.device = device
         self.preroll_ms = preroll_ms
         self.keepalive_s = keepalive_s
         self.on_level = on_level
+        # Consommateur temps reel des blocs enregistres (dictee continue). Doit
+        # se contenter d'empiler : il est appele sur le thread audio.
+        self.on_block = on_block
 
         self._lock = threading.RLock()
         self._stream: sd.InputStream | None = None
@@ -106,14 +110,31 @@ class Recorder:
         block = indata[:, 0].copy() if indata.ndim > 1 else indata.copy()
 
         with self._lock:
-            if self.is_recording:
+            recording = self.is_recording
+            if recording:
                 self._captured.append(block)
+                # Sous le verrou, pour que l'ordre des blocs vus par le
+                # consommateur soit exactement celui de `_captured` : `start()`
+                # lui pousse le pre-roll et ne doit pas etre double par un bloc
+                # arrive entre-temps.
+                self._notify_block(block)
             else:
                 self._preroll.append(block)
 
         if self.on_level is not None:
             peak = float(np.abs(block).max()) if block.size else 0.0
             self.on_level(peak)
+
+    def _notify_block(self, block: np.ndarray) -> None:
+        """Transmet un bloc au consommateur temps reel, sans jamais lui laisser
+        casser la capture : une exception ici couperait le flux audio."""
+        hook = self.on_block
+        if hook is None:
+            return
+        try:
+            hook(block)
+        except Exception:  # noqa: BLE001
+            log.debug("Hook on_block en erreur", exc_info=True)
 
     def open(self) -> None:
         """Ouvre le flux s'il ne l'est pas. Idempotent."""
@@ -174,6 +195,10 @@ class Recorder:
             # Le pre-roll devient le debut de l'enregistrement.
             self._captured = list(self._preroll)
             self._preroll.clear()
+            # Le consommateur temps reel a droit au pre-roll lui aussi, sinon la
+            # dictee continue perd le premier mot que tout ce mecanisme protege.
+            for block in self._captured:
+                self._notify_block(block)
             self.is_recording = True
             self._started_at = time.monotonic()
             self._last_use = self._started_at

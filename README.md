@@ -64,6 +64,83 @@ pour transcrire de l'audio existant.
 
 Fermer la fenêtre principale ne quitte pas : le raccourci reste actif.
 
+## Dictée continue
+
+Réglages ▸ *Mode de dictée* ▸ **Continu**. Le texte tombe alors phrase par
+phrase pendant que tu parles, au lieu d'arriver d'un bloc à la fin. Avec
+**Écrire au curseur**, chaque phrase est frappée dans l'application au premier
+plan — comme la dictée de Windows.
+
+Le découpage se fait sur les **frontières de phrase**, jamais sur une horloge.
+Chaque morceau envoyé au moteur est un groupe de souffle complet, borné par du
+silence : le modèle travaille dans les mêmes conditions qu'en différé. Sur une
+dictée française de 58 s, le texte est celui de la passe unique, y compris là où
+ça compte — « extrêmement riche, ambitieuse et intellectuellement stimulante »
+sort entier.
+
+Le prix à payer est réel : **plus de relecture**. En différé le texte s'affiche
+et s'édite avant que tu t'en serves ; en continu il est déjà dans ton document.
+C'est pourquoi le différé reste le défaut.
+
+Deux règles tenues par le code plutôt que par la documentation :
+
+- **Une hésitation n'est pas une fin de phrase.** En dessous de `MIN_COMMIT_S`
+  de parole accumulée, un simple silence ne valide rien : on attend un vrai
+  arrêt. Sans ce garde-fou, « c'est une vision du contenu / extrêmement riche »
+  partait en deux morceaux et le fragment isolé ressortait « Extrême Maris ».
+- **Une seule détection de langue par dictée**, figée sur la première phrase
+  conséquente et seulement si la confiance dépasse 0,85. Détecter phrase par
+  phrase fait dérailler les petits modèles : sur une dictée française, `small`
+  rendait « Уплиток, мюрмюр » puis du roumain. Ce n'est pas forcer la langue,
+  c'est retrouver la granularité du mode différé. Parakeet et Canary ne
+  rapportent jamais de langue détectée : rien ne se fige pour eux.
+
+### Ce qui change par rapport au différé
+
+| | Différé | Continu |
+| --- | --- | --- |
+| Le texte arrive | d'un bloc, à la fin | phrase par phrase |
+| Relecture avant usage | oui | non |
+| Raccourci | maintenir ou bascule | bascule, toujours |
+| Cran *sans carte graphique* | tous les modèles | `small` seulement, en auto |
+
+Le raccourci passe en bascule de force, et ce n'est pas un détail : en mode
+maintenu, `Ctrl` reste physiquement enfoncé pendant qu'on frappe le texte, et
+l'application cible reçoit des `Ctrl+lettre` au lieu des caractères.
+
+### Sur le cran sans carte graphique
+
+Le mode continu y est confortable côté vitesse — `whisper-small-cpu` tient 16×
+le temps réel à 4 fils, très au-dessus du nécessaire. C'est la **détection de
+langue** qui lâche, pas le calcul :
+
+| Modèle | Détection sur la 1re phrase | Résultat |
+| --- | --- | --- |
+| Whisper small | `fr` à 0,98 | français correct |
+| Whisper base | `ro` à 0,73 | roumain, puis russe |
+
+Sur `base` et `tiny`, **force la langue dans Réglages** en dictée continue. Le
+même extrait passe alors de « Si am trebuit testi para kits » à « Et on prend
+des tests par acquis » — inexact, mais du français.
+
+> Garde-fou mesuré au passage : sur une phrase courte, `base` a rendu l'amorce
+> de dictée mot pour mot (« Voici une note dictée, ponctuée normalement… ») au
+> lieu de transcrire. C'est la régurgitation déjà connue sur `tiny`. Une phrase
+> qui n'est qu'un extrait de l'amorce est désormais jetée, faute de quoi elle
+> serait frappée telle quelle dans le document.
+
+### Niveau d'enregistrement
+
+Les phrases sont remontées à un niveau de parole normal avant d'atteindre le
+moteur, et le détecteur de parole reçoit son propre gain. Ce n'est pas de la
+coquetterie : sur un enregistrement à 0,022 de pic — un micro faible — Silero
+hachait 6,5 s de parole en sept bribes, et Whisper, privé de contexte, inventait
+« Voici une autre vidéo » là où il était dit « voir ce que ça donne ». Normalisé,
+il rend « Voilà, c'est que ça donne ».
+
+Le moteur reçoit toujours l'audio d'origine en mode différé : là, les vingt
+secondes de contexte suffisent à rattraper le niveau.
+
 ## Transcrire des fichiers existants
 
 Onglet **Fichiers** : glisse-dépose ou parcours. Audio et vidéo, n'importe quel
@@ -201,6 +278,7 @@ backend/                 service Python (le modèle vit ici)
     audio.py             capture micro, tampon circulaire, pré-enregistrement
     engines/             moteurs interchangeables (Parakeet ONNX, faster-whisper)
     chunking.py          découpage sur les silences
+    streaming.py         dictée continue : segmentation VAD, phrase par phrase
     media.py             lecture de tout fichier audio/vidéo (soundfile, ffmpeg)
     download.py          progression de téléchargement par observation du cache
     service.py           orchestration micro → moteur → historique
@@ -210,6 +288,7 @@ bin/ffmpeg.exe           décodage des formats que soundfile ne gère pas
 frontend/                application Tauri 2
   src/                   overlay + fenêtre principale (HTML/CSS/JS)
   src-tauri/src/lib.rs   raccourci global, zone de notification, service Python
+  src-tauri/src/inject.rs frappe au curseur (SendInput Unicode)
 ```
 
 Le frontend ne parle au backend que par WebSocket sur `127.0.0.1:8756`.
@@ -227,4 +306,15 @@ cd backend
 .\.venv\Scripts\python.exe scripts\smoke.py <fichier.wav> [id_modele ...]
 .\.venv\Scripts\python.exe scripts\ws_check.py 5          # dictée micro réelle
 .\.venv\Scripts\python.exe scripts\file_check.py <fichier> # import de fichiers
+
+# Dictée continue : un wav rejoué comme s'il sortait du micro.
+.\.venv\Scripts\python.exe scripts\stream_check.py <fichier.wav> [id_modele]
+.\.venv\Scripts\python.exe scripts\stream_service_check.py <fichier.wav> [id_modele]
 ```
+
+`stream_check` montre le découpage et le moment où chaque phrase tombe
+(`--realtime` pour juger le ressenti). `stream_service_check` passe par le
+Service entier et vérifie le contrat que voit le frontend : une suite de
+`commit`, **un seul** `final`, et une seule entrée d'historique dont le texte
+est exactement la concaténation des phrases. Il travaille dans un dossier
+temporaire — l'historique réel n'est pas touché.
