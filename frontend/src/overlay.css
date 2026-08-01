@@ -243,7 +243,7 @@ body {
 .btn.primary {
   background: var(--accent-grad);
   color: #fff;
-  box-shadow: 0 3px 12px rgba(124, 92, 255, 0.32);
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--accent-1) 28%, transparent);
 }
 .btn.primary:hover {
   filter: brightness(1.1);

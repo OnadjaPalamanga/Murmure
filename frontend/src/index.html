@@ -9,21 +9,28 @@
   <body>
     <div class="shell">
       <nav class="sidebar">
-        <div class="brand">
-          <span class="mark"></span>
-          <span class="name">Murmure</span>
-        </div>
-
         <button class="cta" id="btn-dictate">
-          <span class="cta-dot"></span>
+          <span class="icon icon-mic" aria-hidden="true"></span>
           <span id="cta-label">Dicter</span>
           <kbd id="cta-hotkey"></kbd>
         </button>
 
-        <button class="nav-item active" data-tab="history">Historique</button>
-        <button class="nav-item" data-tab="files">Fichiers</button>
-        <button class="nav-item" data-tab="models">Modèles</button>
-        <button class="nav-item" data-tab="settings">Réglages</button>
+        <button class="nav-item active" data-tab="history">
+          <span class="icon icon-history" aria-hidden="true"></span>
+          <span>Historique</span>
+        </button>
+        <button class="nav-item" data-tab="files">
+          <span class="icon icon-files" aria-hidden="true"></span>
+          <span>Fichiers</span>
+        </button>
+        <button class="nav-item" data-tab="models">
+          <span class="icon icon-models" aria-hidden="true"></span>
+          <span>Modèles</span>
+        </button>
+        <button class="nav-item" data-tab="settings">
+          <span class="icon icon-settings" aria-hidden="true"></span>
+          <span>Réglages</span>
+        </button>
 
         <div class="sidebar-foot">
           <!-- Barre de progression : telechargement de modele, ou lot de fichiers -->
@@ -95,6 +102,57 @@
           <header class="panel-head"><h1>Réglages</h1></header>
 
           <div class="form" id="settings-form">
+            <fieldset>
+              <legend>Apparence</legend>
+
+              <div class="row">
+                <span class="label">
+                  Palette
+                  <em>Couleurs d'accent de la fenêtre et de l'overlay.</em>
+                </span>
+                <div class="palette-picker" id="appearance-palette" role="group" aria-label="Palette">
+                  <button
+                    type="button"
+                    class="palette-swatch"
+                    data-palette="magenta-blue"
+                    aria-label="Magenta et bleu"
+                    title="Magenta et bleu"
+                  ></button>
+                  <button
+                    type="button"
+                    class="palette-swatch"
+                    data-palette="rose-violet"
+                    aria-label="Rose et violet"
+                    title="Rose et violet"
+                  ></button>
+                  <button
+                    type="button"
+                    class="palette-swatch"
+                    data-palette="violet-azure"
+                    aria-label="Violet et azur"
+                    title="Violet et azur"
+                  ></button>
+                </div>
+              </div>
+
+              <label class="row">
+                <span class="label">
+                  Densité du fond
+                  <em>Plus élevée : fond plus sombre et contenu arrière moins visible.</em>
+                </span>
+                <span class="range">
+                  <input
+                    type="range"
+                    id="appearance-density"
+                    min="72"
+                    max="96"
+                    step="1"
+                  />
+                  <output id="out-appearance-density"></output>
+                </span>
+              </label>
+            </fieldset>
+
             <fieldset>
               <legend>Déclenchement</legend>
 

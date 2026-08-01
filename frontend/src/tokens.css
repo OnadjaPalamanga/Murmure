@@ -1,13 +1,16 @@
 /* Jetons de design partages par l'overlay et la fenetre principale. */
 
 :root {
-  --accent-1: #7c5cff;
-  --accent-2: #3aa0ff;
-  --accent-grad: linear-gradient(135deg, var(--accent-1), var(--accent-2));
+  --window-alpha: 0.86;
+  --sidebar-alpha: 0.88;
+  --accent-1: #d946ef;
+  --accent-2: #4f8cff;
+  --accent-grad: linear-gradient(135deg, #e052c8 0%, #7b5cff 54%, #4f8cff 100%);
 
-  --bg: #0d0d12;
-  --surface: #16161d;
-  --surface-2: #1e1e28;
+  --bg: rgb(12 12 18 / var(--window-alpha));
+  --sidebar-bg: rgb(18 18 26 / var(--sidebar-alpha));
+  --surface: rgba(22, 22, 29, 0.94);
+  --surface-2: rgba(30, 30, 40, 0.96);
   --border: rgba(255, 255, 255, 0.09);
   --border-strong: rgba(255, 255, 255, 0.16);
 
@@ -30,6 +33,18 @@
 
   --font: "Segoe UI Variable Display", "Segoe UI", Inter, system-ui, sans-serif;
   --mono: "Cascadia Code", "Consolas", ui-monospace, monospace;
+}
+
+:root[data-palette="rose-violet"] {
+  --accent-1: #f04f9a;
+  --accent-2: #8b5cf6;
+  --accent-grad: linear-gradient(135deg, #f04f9a 0%, #c044d4 52%, #8b5cf6 100%);
+}
+
+:root[data-palette="violet-azure"] {
+  --accent-1: #9b5cff;
+  --accent-2: #38bdf8;
+  --accent-grad: linear-gradient(135deg, #c04fe0 0%, #795cf6 50%, #38bdf8 100%);
 }
 
 * {

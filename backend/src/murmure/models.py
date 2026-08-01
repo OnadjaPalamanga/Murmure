@@ -19,11 +19,20 @@ from .paths import MODELS_DIR
 log = logging.getLogger(__name__)
 
 
-# Les trois crans du curseur vitesse/qualite presente dans l'interface.
+# Les crans du curseur vitesse/qualite presente dans l'interface.
+# TIER_CPU n'est pas « le cran le plus lent » mais un axe a part : ces modeles
+# visent une machine sans carte graphique, ou tout le reste du catalogue est
+# inutilisable.
+TIER_CPU = "leger"
 TIER_FAST = "rapide"
 TIER_BALANCED = "equilibre"
 TIER_BEST = "qualite"
-TIER_ORDER = [TIER_FAST, TIER_BALANCED, TIER_BEST]
+TIER_ORDER = [TIER_CPU, TIER_FAST, TIER_BALANCED, TIER_BEST]
+
+# Une dictee ne doit pas confisquer la machine. Quatre fils suffisent aux petits
+# modeles et laissent l'ordinateur reactif ; au-dela le gain est faible et le
+# pic de consommation, lui, ne l'est pas.
+CPU_THREADS = 4
 
 
 @dataclass(slots=True)
@@ -48,29 +57,81 @@ class ModelSpec:
 
 
 CATALOG: list[ModelSpec] = [
+    # --- sans carte graphique -------------------------------------------------
+    # compute_type "int8" et non "int8_float16" : ce dernier est un type GPU,
+    # sur CPU CTranslate2 le refuse et retombe en silence sur autre chose.
+    ModelSpec(
+        id="whisper-base-cpu",
+        label="Whisper base (CPU)",
+        engine="whisper",
+        source="base",
+        blurb="Le defaut quand il n'y a pas de carte graphique. Etonnamment "
+        "juste pour sa taille : garde la structure des phrases et les mots "
+        "anglais. Se trompe sur les noms propres et le vocabulaire rare.",
+        vram_mb=0,
+        languages="99 langues, detection automatique",
+        hf_repo="Systran/faster-whisper-base",
+        tier=TIER_CPU,
+        options={"compute_type": "int8", "beam_size": 1, "cpu_threads": CPU_THREADS},
+    ),
+    ModelSpec(
+        id="whisper-small-cpu",
+        label="Whisper small (CPU)",
+        engine="whisper",
+        source="small",
+        blurb="Nettement plus precis que base, pour deux fois et demie le temps. "
+        "Le bon choix sur CPU des que la dictee compte.",
+        vram_mb=0,
+        languages="99 langues, detection automatique",
+        hf_repo="Systran/faster-whisper-small",
+        tier=TIER_CPU,
+        options={"compute_type": "int8", "beam_size": 1, "cpu_threads": CPU_THREADS},
+    ),
+    ModelSpec(
+        id="whisper-tiny-cpu",
+        label="Whisper tiny (CPU)",
+        engine="whisper",
+        source="tiny",
+        blurb="Pour une machine vraiment modeste. Qualite juste suffisante pour "
+        "des notes courtes, a ne pas utiliser pour du texte qui compte.",
+        vram_mb=0,
+        languages="99 langues, detection automatique",
+        hf_repo="Systran/faster-whisper-tiny",
+        tier=TIER_CPU,
+        # Sans amorce : tiny est trop petit pour la suivre, il la recopie puis
+        # part en boucle (« la question de la question de la question… »).
+        options={
+            "compute_type": "int8",
+            "beam_size": 1,
+            "cpu_threads": CPU_THREADS,
+            "initial_prompt": None,
+        },
+    ),
+    # --- avec carte graphique -------------------------------------------------
     ModelSpec(
         id="parakeet-tdt-0.6b-v3",
         label="Parakeet v3",
         engine="parakeet",
         source="nemo-parakeet-tdt-0.6b-v3",
-        blurb="Le plus rapide, et le meilleur en francais parmi les rapides. "
-        "Architecture transducer : n'invente pas de texte sur les silences.",
+        blurb="Tres rapide, et n'invente rien sur les silences (transducer). "
+        "Mais sa detection de langue bascule mot a mot : sur du francais "
+        "melange d'anglais, il ecrit « it's quite » pour « c'est quand meme ». "
+        "A reserver au francais pur ou a l'anglais pur.",
         vram_mb=1200,
         languages="25 langues (dont FR), detection automatique",
         hf_repo="istupakov/parakeet-tdt-0.6b-v3-onnx",
         tier=TIER_FAST,
-        is_default=True,
     ),
     ModelSpec(
         id="canary-1b-v2",
         label="Canary 1B v2",
         engine="parakeet",  # meme moteur onnx-asr
         source="nemo-canary-1b-v2",
-        blurb="Le plus precis du catalogue. Bat Whisper large-v3 en multilingue "
-        "(8,1 % contre 9,9 % de WER moyen) tout en restant rapide. "
+        blurb="Le plus precis du catalogue, et il garde tes anglicismes tels "
+        "quels au lieu de les franciser. Le plus lent aussi. "
         "Quantifie en int8 pour tenir dans la VRAM.",
         vram_mb=1400,
-        languages="25 langues (dont FR), detection automatique",
+        languages="25 langues, langue source a preciser (fr par defaut)",
         hf_repo="istupakov/canary-1b-v2-onnx",
         tier=TIER_BEST,
         options={"quantization": "int8", "needs_language": True, "default_language": "fr"},
@@ -80,12 +141,14 @@ CATALOG: list[ModelSpec] = [
         label="Whisper large-v3-turbo",
         engine="whisper",
         source="large-v3-turbo",
-        blurb="Bon compromis vitesse/qualite. Langue forcable, contrairement "
-        "aux modeles NeMo.",
+        blurb="Le defaut : rapide et juste en meme temps. Tient la phrase "
+        "francaise la ou Parakeet part en anglais. Seul defaut connu, il "
+        "ecrit parfois « Waouh » la ou tu as dit « Wow ».",
         vram_mb=1600,
-        languages="99 langues",
+        languages="99 langues, detection automatique",
         hf_repo="mobiuslabsgmbh/faster-whisper-large-v3-turbo",
         tier=TIER_BALANCED,
+        is_default=True,
         options={"compute_type": "int8_float16", "beam_size": 1},
     ),
     ModelSpec(
@@ -106,10 +169,11 @@ CATALOG: list[ModelSpec] = [
         label="Whisper large-v3",
         engine="whisper",
         source="large-v3",
-        blurb="La reference Whisper, avec recherche en faisceau a 5. Nettement "
-        "plus lent. Le seul du haut de gamme dont on peut forcer la langue.",
+        blurb="La reference Whisper, avec recherche en faisceau a 5. Garde tes "
+        "anglicismes tels quels, comme Canary, et reste deux a trois fois "
+        "plus rapide que lui. Plus lent que turbo pour un gain marginal.",
         vram_mb=3100,
-        languages="99 langues",
+        languages="99 langues, detection automatique",
         hf_repo="Systran/faster-whisper-large-v3",
         tier=TIER_BEST,
         options={"compute_type": "int8_float16", "beam_size": 5},
@@ -202,6 +266,7 @@ def build_engine(spec: ModelSpec, *, prefer_gpu: bool = True) -> Engine:
             vad_filter=bool(opts.get("vad_filter", True)),
             prefer_gpu=prefer_gpu,
             download_root=str(MODELS_DIR / "hub"),
+            cpu_threads=int(opts.get("cpu_threads", 0)),
         )
 
     raise ValueError(f"Moteur inconnu : {spec.engine}")

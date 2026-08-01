@@ -1,4 +1,5 @@
 import { Bus, formatDate } from "./ws.js";
+import { applyAppearance, loadAppearance, saveAppearance } from "./appearance.js";
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -10,6 +11,34 @@ let searchTimer = null;
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
+
+// ------------------------------------------------------------- apparence
+
+let appearance = applyAppearance(loadAppearance());
+
+function renderAppearance() {
+  $$(".palette-swatch").forEach((swatch) => {
+    swatch.setAttribute("aria-pressed", String(swatch.dataset.palette === appearance.palette));
+  });
+  $("#appearance-density").value = String(appearance.density);
+  $("#out-appearance-density").textContent = `${appearance.density} %`;
+}
+
+function bindAppearance() {
+  $$(".palette-swatch").forEach((swatch) => {
+    swatch.addEventListener("click", () => {
+      appearance = saveAppearance({ ...appearance, palette: swatch.dataset.palette });
+      renderAppearance();
+    });
+  });
+
+  $("#appearance-density").addEventListener("input", (event) => {
+    appearance = saveAppearance({ ...appearance, density: Number(event.target.value) });
+    renderAppearance();
+  });
+
+  renderAppearance();
+}
 
 // ------------------------------------------------------------- navigation
 
@@ -105,8 +134,15 @@ $("#search").addEventListener("input", () => {
 
 // ------------------------------------------------------------------ modeles
 
-// Le curseur vitesse/qualité : trois crans, du plus rapide au plus exact.
+// Le curseur vitesse/qualité, du plus léger au plus exact. « Léger » n'est pas
+// le bas du curseur mais un axe à part : ces modèles visent une machine sans
+// carte graphique, où le reste du catalogue est inutilisable.
 const TIERS = [
+  {
+    id: "leger",
+    name: "Sans carte graphique",
+    hint: "Tourne sur le processeur seul, bridé à 4 cœurs pour laisser la machine réactive.",
+  },
   {
     id: "rapide",
     name: "Rapide",
@@ -146,7 +182,9 @@ function buildModelCard(model, activeId, engine) {
   };
   if (model.is_default) addTag("recommandé", "reco");
   if (model.is_local) addTag("local", "local");
+  // Pas de VRAM annoncée = modèle du cran léger, qui tourne sur le processeur.
   if (model.vram_mb) addTag(`${model.vram_mb} Mo VRAM`);
+  else addTag("processeur seul");
   addTag(model.languages);
 
   const blurb = document.createElement("p");
@@ -295,6 +333,20 @@ function hideProgress() {
 
 const mo = (bytes) => `${(bytes / 1024 / 1024).toFixed(0)} Mo`;
 
+const LANGUAGE_LABELS = {
+  auto: "Auto",
+  fr: "Français",
+  en: "Anglais",
+};
+
+function updateSidebarMeta(state = snapshot) {
+  if (!state) return;
+  const modelId = state.settings?.model_id ?? state.engine?.model_id;
+  const model = state.models?.find((m) => m.id === modelId);
+  const language = LANGUAGE_LABELS[state.settings?.language] ?? state.settings?.language ?? "Auto";
+  $("#stats").textContent = `${model?.label ?? modelId ?? "Modèle"} · ${language}`;
+}
+
 // ---------------------------------------------------------------- fichiers
 
 let mediaExt = { audio: [], video: [] };
@@ -379,11 +431,7 @@ bus.on("snapshot", (msg) => {
     ? `Audio : ${mediaExt.audio.join(", ")} — Vidéo : ${mediaExt.video.join(", ")}`
     : `Audio : ${mediaExt.audio.join(", ")} (ffmpeg absent : vidéos indisponibles)`;
 
-  const { count, total_audio_seconds } = msg.stats;
-  $("#stats").textContent = `${count} dictée${count > 1 ? "s" : ""} · ${Math.round(
-    total_audio_seconds / 60
-  )} min`;
-
+  updateSidebarMeta(msg);
   updateEngineStatus(msg.engine);
   refreshHistory();
 });
@@ -431,8 +479,23 @@ bus.on("model_stage", (msg) => {
 bus.on("model_ready", (engine) => {
   hideProgress();
   updateEngineStatus(engine);
-  if (snapshot) renderModels(snapshot.models, engine.model_id, engine);
+  if (snapshot) {
+    snapshot.engine = engine;
+    snapshot.settings.model_id = engine.model_id;
+    renderModels(snapshot.models, engine.model_id, engine);
+    updateSidebarMeta(snapshot);
+  }
   toast("Modèle prêt");
+});
+
+bus.on("engine", (engine) => {
+  updateEngineStatus(engine);
+  if (snapshot) {
+    snapshot.engine = engine;
+    snapshot.settings.model_id = engine.model_id;
+    renderModels(snapshot.models, engine.model_id, engine);
+    updateSidebarMeta(snapshot);
+  }
 });
 
 // --- dictée depuis la fenêtre principale ---
@@ -473,6 +536,7 @@ bus.on("error", ({ message }) => {
   toast(message, 6000);
 });
 
+bindAppearance();
 bindSettings();
 
 // Un raccourci refuse (deja pris par une autre application) doit se voir :

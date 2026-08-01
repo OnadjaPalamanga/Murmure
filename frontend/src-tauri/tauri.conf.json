@@ -35,6 +35,11 @@
         "minHeight": 520,
         "resizable": true,
         "decorations": true,
+        "transparent": true,
+        "windowEffects": {
+          "effects": ["acrylic"],
+          "color": [12, 12, 18, 204]
+        },
         "visible": true,
         "center": true
       }

@@ -56,6 +56,7 @@ class WhisperEngine:
         vad_filter: bool = True,
         prefer_gpu: bool = True,
         download_root: str | None = None,
+        cpu_threads: int = 0,
     ) -> None:
         self.model_id = model_id
         self.repo = repo
@@ -66,6 +67,11 @@ class WhisperEngine:
         self.vad_filter = vad_filter
         self.prefer_gpu = prefer_gpu
         self.download_root = download_root
+        # 0 = laisser CTranslate2 decider, c'est-a-dire prendre tous les coeurs.
+        # Les modeles du cran leger bornent ce nombre : une dictee ne doit pas
+        # rendre la machine inutilisable, et une charge AVX sur tous les coeurs
+        # tire un pic de courant que toutes les alimentations n'encaissent pas.
+        self.cpu_threads = cpu_threads
         self.is_loaded = False
         self.device = "cpu"
         self._model = None
@@ -87,9 +93,11 @@ class WhisperEngine:
                 device=device,
                 compute_type=compute_type,
                 download_root=self.download_root,
+                cpu_threads=self.cpu_threads,
             )
         except Exception as exc:  # noqa: BLE001
             # VRAM saturee ou CUDA indisponible : l'i9-9960X encaisse turbo en int8.
+            # int8_float16 est un type GPU : sur CPU il faut retomber sur int8.
             log.warning("Chargement CUDA impossible (%s), repli CPU", exc)
             device, compute_type = "cpu", "int8"
             self._model = WhisperModel(
@@ -97,6 +105,7 @@ class WhisperEngine:
                 device=device,
                 compute_type=compute_type,
                 download_root=self.download_root,
+                cpu_threads=self.cpu_threads,
             )
 
         self.device = device

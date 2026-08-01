@@ -78,23 +78,95 @@ anglais réellement prononcés (« meeting » → « mitine »). L'amorce donné
 Whisper contient d'ailleurs des anglicismes écrits en anglais, précisément pour
 qu'il les laisse tels quels.
 
+Mais « détection automatique » ne veut pas dire « fidèle », et la déformation va
+dans les deux sens. Sur une dictée française contenant un vrai « Wow », mesuré
+phrase par phrase :
+
+| Ce qui a été dit | « c'est quand même super rapide » | « Wow » |
+| --- | --- | --- |
+| Parakeet v3 | « **it's quite** super rapide » | Wow |
+| Whisper large-v3-turbo | ✓ | « Waouh » |
+| Whisper FR distil | ✓ | « Waouh » |
+| Whisper large-v3 | ✓ | ✓ |
+| Canary 1B v2 | ✓ | ✓ |
+
+Parakeet ne préserve pas les anglicismes : sa détection bascule **mot à mot** et
+remplace des mots français par leurs quasi-homophones anglais (« et » → « and »,
+« riche » → « rich », « Tu touches à la croisée de plusieurs » → « You touch at
+the croisée of other »). Les deux modèles haut de gamme sont les seuls à faire
+les deux choses à la fois : garder l'anglais réellement prononcé **et** ne pas
+angliciser le français.
+
 Contrepartie : sur un clip très court sans mots réels, la détection automatique
 peut se tromper de langue. Si ça arrive, force la langue dans Réglages.
 
 ## Modèles
 
-Quatre modèles sont proposés, avec des réglages optimaux câblés par modèle.
-**Parakeet v3 est le défaut** : le plus rapide, le meilleur en français parmi
-les rapides, et son architecture *transducer* peut émettre une sortie vide au
-lieu de forcer un token — il n'invente pas de texte sur les silences, contrairement
-à Whisper.
+Huit modèles, rangés dans l'interface en quatre crans d'un curseur
+vitesse/qualité. Les réglages optimaux sont câblés par modèle.
 
-Parakeet détecte la langue seul et **on ne peut pas la forcer** — ce qui tombe
-bien pour du discours qui mélange français et anglais. Si tu préfères pouvoir
-verrouiller la langue, bascule sur `whisper-large-v3-turbo`.
+| Cran | Modèle | Pour quoi |
+| --- | --- | --- |
+| **Sans carte graphique** | Whisper tiny / base / small (CPU) | Machine sans GPU |
+| **Rapide** | Parakeet v3 | Français pur ou anglais pur, réponse immédiate |
+| **Équilibré** | Whisper large-v3-turbo *(défaut)* | La dictée de tous les jours |
+| **Équilibré** | Whisper FR distil dec16 | Accents non hexagonaux |
+| **Qualité** | Whisper large-v3 | Ce qui compte vraiment |
+| **Qualité** | Canary 1B v2 | Le plus exact, le plus lent |
+
+**`whisper-large-v3-turbo` est le défaut** parce qu'il est à la fois plus rapide
+et plus juste que Parakeet sur du français mêlé d'anglais — voir le tableau de
+la section précédente. Parakeet garde sa place au cran *Rapide* pour son
+architecture *transducer*, qui peut émettre une sortie vide au lieu de forcer un
+token : il n'invente pas de texte sur les silences, contrairement à Whisper.
 
 > À ne pas faire : passer `language="fr"` à Parakeet. Le texte est rigoureusement
 > identique et le temps de calcul est multiplié par 7,5. Vérifié, pas supposé.
+
+### Sans carte graphique
+
+Le cran *Sans carte graphique* existe pour que Murmure reste utilisable sur une
+machine ordinaire. Mesuré sur un extrait de 25 s de parole française mêlée
+d'anglais, **processeur seul, bridé à 4 fils** :
+
+| Modèle | Temps | Facteur temps réel | Ce qu'il donne |
+| --- | --- | --- | --- |
+| Whisper tiny | 0,9 s | 28× | Compréhensible, beaucoup d'erreurs de mots |
+| Whisper base | 2,0 s | 12× | Phrases correctes, se trompe sur les noms propres |
+| Whisper small | 4,8 s | 5× | Le meilleur des trois sur CPU |
+
+Les trois gardent les anglicismes réellement prononcés.
+
+Deux décisions à ne pas défaire dans ce cran :
+
+- **`compute_type: "int8"`, jamais `int8_float16`.** Ce dernier est un type GPU ;
+  sur processeur CTranslate2 le refuse et retombe en silence sur autre chose.
+- **`cpu_threads` borné à 4.** Une dictée ne doit pas confisquer la machine. Et
+  une charge AVX sur tous les cœurs tire un pic de consommation que toutes les
+  alimentations n'encaissent pas — vérifié à nos dépens.
+
+> À ne pas faire : donner l'amorce de dictée à `tiny`. Le modèle est trop petit
+> pour la suivre : il la recopie puis part en boucle (« la question de la
+> question de la question… »). D'où `initial_prompt: None` sur cette seule
+> entrée. Avec l'amorce il produisait du texte inutilisable **et** était treize
+> fois plus lent, la boucle multipliant les étapes de décodage.
+
+Deux pistes évaluées puis **écartées**, pour ne pas les réexplorer :
+
+- `whisper-large-v3-french-distil-dec2` : distiller le décodeur ne sert presque
+  à rien sur processeur, où c'est l'encodeur qui coûte cher — et celui-ci reste
+  l'encodeur large-v3 entier. 2,1× le temps réel pour une sortie sans
+  ponctuation ni majuscules.
+- `canary-180m-flash` : très rapide (12×) mais il **perd le début** de
+  l'enregistrement, de façon reproductible. Rédhibitoire pour de la dictée.
+
+> Piège Canary : contrairement à Parakeet, il n'a **aucun jeton de détection
+> automatique**. Son prompt est câblé sur `<|en|>`/`<|en|>` aux positions 4 et 5
+> (voir `onnx_asr/models/nemo.py`), si bien que sans langue source explicite il
+> **traduit** au lieu de transcrire — du français dicté ressort en anglais. C'est
+> pourquoi c'est le seul modèle du catalogue à porter `needs_language`, et
+> pourquoi on lui passe `target_language` égal à `language` : c'est cette
+> égalité, et rien d'autre, qui distingue transcrire de traduire.
 
 > À ne pas faire non plus : pré-télécharger un dépôt entier avec
 > `snapshot_download` pour afficher un pourcentage. onnx-asr et faster-whisper ne

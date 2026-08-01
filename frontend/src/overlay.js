@@ -1,4 +1,7 @@
 import { Bus, formatDuration } from "./ws.js";
+import { applyAppearance } from "./appearance.js";
+
+applyAppearance();
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;

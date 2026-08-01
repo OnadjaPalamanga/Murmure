@@ -4,7 +4,7 @@ use std::sync::Mutex;
 
 use tauri::{
     menu::{Menu, MenuItem},
-    tray::TrayIconBuilder,
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, WebviewWindow,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
@@ -165,7 +165,9 @@ fn open_main(app: AppHandle, tab: Option<String>) {
         let _ = win.show();
         let _ = win.unminimize();
         let _ = win.set_focus();
-        let _ = win.emit("navigate", tab.unwrap_or_else(|| "history".into()));
+        if let Some(tab) = tab {
+            let _ = win.emit("navigate", tab);
+        }
     }
 }
 
@@ -223,6 +225,18 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         .tooltip("Murmure — dictee locale")
         .menu(&menu)
         .show_menu_on_left_click(false)
+        .on_tray_icon_event(|tray, event| match event {
+            TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            }
+            | TrayIconEvent::DoubleClick {
+                button: MouseButton::Left,
+                ..
+            } => open_main(tray.app_handle().clone(), None),
+            _ => {}
+        })
         .on_menu_event(|app, event| match event.id.as_ref() {
             "dictate" => trigger_dictation(app.clone()),
             "history" => open_main(app.clone(), Some("history".into())),
