@@ -369,11 +369,41 @@ body {
 
 /* --------------------------------------------------------------- modeles */
 
+/* Les modeles sont groupes par cran vitesse/qualite, du plus rapide au plus
+   exact : l'ordre vertical est lui-meme le curseur. */
 .cards {
+  display: block;
+  align-content: start;
+}
+
+.cards-row {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 12px;
-  align-content: start;
+  margin-bottom: 22px;
+}
+
+.tier-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--border);
+}
+.tier-head h2 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.tier-head p {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--text-faint);
 }
 
 .model {

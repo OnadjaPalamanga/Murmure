@@ -19,6 +19,13 @@ from .paths import MODELS_DIR
 log = logging.getLogger(__name__)
 
 
+# Les trois crans du curseur vitesse/qualite presente dans l'interface.
+TIER_FAST = "rapide"
+TIER_BALANCED = "equilibre"
+TIER_BEST = "qualite"
+TIER_ORDER = [TIER_FAST, TIER_BALANCED, TIER_BEST]
+
+
 @dataclass(slots=True)
 class ModelSpec:
     id: str
@@ -28,6 +35,7 @@ class ModelSpec:
     blurb: str
     vram_mb: int
     languages: str
+    tier: str = TIER_BALANCED
     # Depot HuggingFace reel, pour pouvoir telecharger avec une barre de
     # progression avant de confier le modele a la bibliotheque.
     hf_repo: str = ""
@@ -50,18 +58,34 @@ CATALOG: list[ModelSpec] = [
         vram_mb=1200,
         languages="25 langues (dont FR), detection automatique",
         hf_repo="istupakov/parakeet-tdt-0.6b-v3-onnx",
+        tier=TIER_FAST,
         is_default=True,
+    ),
+    ModelSpec(
+        id="canary-1b-v2",
+        label="Canary 1B v2",
+        engine="parakeet",  # meme moteur onnx-asr
+        source="nemo-canary-1b-v2",
+        blurb="Le plus precis du catalogue. Bat Whisper large-v3 en multilingue "
+        "(8,1 % contre 9,9 % de WER moyen) tout en restant rapide. "
+        "Quantifie en int8 pour tenir dans la VRAM.",
+        vram_mb=1400,
+        languages="25 langues (dont FR), detection automatique",
+        hf_repo="istupakov/canary-1b-v2-onnx",
+        tier=TIER_BEST,
+        options={"quantization": "int8", "needs_language": True, "default_language": "fr"},
     ),
     ModelSpec(
         id="whisper-large-v3-turbo",
         label="Whisper large-v3-turbo",
         engine="whisper",
         source="large-v3-turbo",
-        blurb="Repli multilingue robuste. A privilegier si tu melanges "
-        "francais et anglais dans la meme phrase.",
+        blurb="Bon compromis vitesse/qualite. Langue forcable, contrairement "
+        "aux modeles NeMo.",
         vram_mb=1600,
         languages="99 langues",
         hf_repo="mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+        tier=TIER_BALANCED,
         options={"compute_type": "int8_float16", "beam_size": 1},
     ),
     ModelSpec(
@@ -74,6 +98,7 @@ CATALOG: list[ModelSpec] = [
         vram_mb=1800,
         languages="francais",
         hf_repo="Kelno/whisper-large-v3-french-distil-dec16-ct2",
+        tier=TIER_BALANCED,
         options={"compute_type": "int8_float16", "beam_size": 1},
     ),
     ModelSpec(
@@ -81,11 +106,12 @@ CATALOG: list[ModelSpec] = [
         label="Whisper large-v3",
         engine="whisper",
         source="large-v3",
-        blurb="Qualite maximale, nettement plus lent. Pour les fichiers longs "
-        "ou l'audio difficile, pas pour la dictee au vol.",
+        blurb="La reference Whisper, avec recherche en faisceau a 5. Nettement "
+        "plus lent. Le seul du haut de gamme dont on peut forcer la langue.",
         vram_mb=3100,
         languages="99 langues",
         hf_repo="Systran/faster-whisper-large-v3",
+        tier=TIER_BEST,
         options={"compute_type": "int8_float16", "beam_size": 5},
     ),
 ]
@@ -160,6 +186,8 @@ def build_engine(spec: ModelSpec, *, prefer_gpu: bool = True) -> Engine:
             onnx_name=str(path) if spec.is_local else spec.source,
             quantization=spec.options.get("quantization"),
             prefer_gpu=prefer_gpu,
+            needs_language=bool(spec.options.get("needs_language")),
+            default_language=str(spec.options.get("default_language", "fr")),
         )
 
     if spec.engine == "whisper":

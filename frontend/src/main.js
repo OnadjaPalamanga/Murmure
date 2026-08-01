@@ -105,34 +105,90 @@ $("#search").addEventListener("input", () => {
 
 // ------------------------------------------------------------------ modeles
 
+// Le curseur vitesse/qualité : trois crans, du plus rapide au plus exact.
+const TIERS = [
+  {
+    id: "rapide",
+    name: "Rapide",
+    hint: "Réponse quasi immédiate, qualité correcte. Pour la dictée au fil de l'eau.",
+  },
+  {
+    id: "equilibre",
+    name: "Équilibré",
+    hint: "Un peu plus lent, nettement plus fiable sur l'audio difficile.",
+  },
+  {
+    id: "qualite",
+    name: "Qualité maximale",
+    hint: "Le plus exact. Quelques secondes de plus, à réserver aux enregistrements qui comptent.",
+  },
+];
+
+function buildModelCard(model, activeId, engine) {
+  const card = document.createElement("button");
+  card.className = "model" + (model.id === activeId ? " active" : "");
+
+  const busy = model.id === activeId && engine.loading;
+  const check = document.createElement("span");
+  check.className = "check";
+  check.textContent = busy ? "chargement…" : "● actif";
+
+  const title = document.createElement("h3");
+  title.textContent = model.label;
+
+  const tags = document.createElement("div");
+  tags.className = "tags";
+  const addTag = (text, cls) => {
+    const t = document.createElement("span");
+    t.className = cls ? `tag ${cls}` : "tag";
+    t.textContent = text;
+    tags.appendChild(t);
+  };
+  if (model.is_default) addTag("recommandé", "reco");
+  if (model.is_local) addTag("local", "local");
+  if (model.vram_mb) addTag(`${model.vram_mb} Mo VRAM`);
+  addTag(model.languages);
+
+  const blurb = document.createElement("p");
+  blurb.textContent = model.blurb;
+
+  card.append(check, title, tags, blurb);
+  card.addEventListener("click", () => {
+    if (model.id === activeId) return;
+    bus.send("set_model", { model_id: model.id });
+    toast(`Chargement de ${model.label}…`);
+  });
+  return card;
+}
+
 function renderModels(models, activeId, engine) {
   const wrap = $("#model-cards");
   wrap.textContent = "";
 
-  for (const model of models) {
-    const card = document.createElement("button");
-    card.className = "model" + (model.id === activeId ? " active" : "");
+  // Les modèles déposés à la main n'ont pas de niveau : ils vont dans leur
+  // propre section plutôt que d'être rangés arbitrairement.
+  const groups = [...TIERS, { id: null, name: "Tes modèles", hint: "Déposés dans models/." }];
 
-    const tags = [];
-    if (model.is_default) tags.push(['<span class="tag reco">recommandé</span>']);
-    if (model.is_local) tags.push(['<span class="tag local">local</span>']);
-    if (model.vram_mb) tags.push([`<span class="tag">${model.vram_mb} Mo VRAM</span>`]);
-    tags.push([`<span class="tag">${model.languages}</span>`]);
+  for (const tier of groups) {
+    const inTier = models.filter((m) =>
+      tier.id === null ? !TIERS.some((t) => t.id === m.tier) : m.tier === tier.id,
+    );
+    if (!inTier.length) continue;
 
-    const busy = model.id === activeId && engine.loading;
-    card.innerHTML = `
-      <span class="check">${busy ? "chargement…" : "● actif"}</span>
-      <h3>${model.label}</h3>
-      <div class="tags">${tags.join("")}</div>
-      <p>${model.blurb}</p>`;
+    const head = document.createElement("div");
+    head.className = "tier-head";
 
-    card.addEventListener("click", () => {
-      if (model.id === activeId) return;
-      bus.send("set_model", { model_id: model.id });
-      toast(`Chargement de ${model.label}…`);
-    });
+    const name = document.createElement("h2");
+    name.textContent = tier.name;
+    const hint = document.createElement("p");
+    hint.textContent = tier.hint;
+    head.append(name, hint);
+    wrap.appendChild(head);
 
-    wrap.appendChild(card);
+    const row = document.createElement("div");
+    row.className = "cards-row";
+    for (const model of inTier) row.appendChild(buildModelCard(model, activeId, engine));
+    wrap.appendChild(row);
   }
 }
 

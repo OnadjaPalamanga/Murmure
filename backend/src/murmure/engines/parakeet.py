@@ -30,11 +30,18 @@ class ParakeetEngine:
         *,
         quantization: str | None = None,
         prefer_gpu: bool = True,
+        needs_language: bool = False,
+        default_language: str = "fr",
     ) -> None:
         self.model_id = model_id
         self.onnx_name = onnx_name
         self.quantization = quantization
         self.prefer_gpu = prefer_gpu
+        # Canary n'a pas de detection automatique : son prompt est cable en
+        # anglais et, sans langue source explicite, il *traduit* au lieu de
+        # transcrire. Parakeet, lui, detecte seul et ne doit rien recevoir.
+        self.needs_language = needs_language
+        self.default_language = default_language
         self.is_loaded = False
         self.device = "cpu"
         self._model = None
@@ -97,8 +104,13 @@ class ParakeetEngine:
         if not self.is_loaded:
             self.load()
         silence = np.zeros(SAMPLE_RATE, dtype=np.float32)
+        opts = (
+            {"language": self.default_language, "target_language": self.default_language}
+            if self.needs_language
+            else {}
+        )
         try:
-            self._model.recognize(silence, sample_rate=SAMPLE_RATE)
+            self._model.recognize(silence, sample_rate=SAMPLE_RATE, **opts)
         except Exception:  # noqa: BLE001 - un echec de warmup n'est pas fatal
             log.debug("Warmup Parakeet sans effet", exc_info=True)
 
@@ -109,14 +121,21 @@ class ParakeetEngine:
         audio = np.ascontiguousarray(audio, dtype=np.float32)
         started = time.perf_counter()
 
-        # Parakeet v3 detecte la langue seul : passer `language` degraderait
+        # Parakeet v3 detecte la langue seul : lui passer `language` degraderait
         # le resultat sur les phrases qui melangent francais et anglais.
+        # Canary, a l'inverse, exige une langue source, sans quoi il traduit.
+        opts: dict = {}
+        if self.needs_language:
+            source = language or self.default_language
+            # target = source : c'est ce qui distingue transcrire de traduire.
+            opts = {"language": source, "target_language": source}
+
         chunks = split_on_silence(audio, sample_rate=SAMPLE_RATE)
         if len(chunks) == 1:
-            text = self._model.recognize(chunks[0], sample_rate=SAMPLE_RATE)
+            text = self._model.recognize(chunks[0], sample_rate=SAMPLE_RATE, **opts)
         else:
             # recognize() accepte une liste et traite le lot en une passe.
-            parts = self._model.recognize(chunks, sample_rate=SAMPLE_RATE)
+            parts = self._model.recognize(chunks, sample_rate=SAMPLE_RATE, **opts)
             text = " ".join(p.strip() for p in parts if p and p.strip())
 
         latency_ms = int((time.perf_counter() - started) * 1000)
