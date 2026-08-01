@@ -1,0 +1,268 @@
+/* Overlay de dictee : fenetre sans bordure, fond transparent.
+   Le corps ne peint rien — seul `.card` est visible. */
+
+html,
+body {
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+}
+
+.card {
+  position: relative;
+  height: 100%;
+  margin: 10px;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--r-lg);
+  background: rgba(18, 18, 24, 0.82);
+  backdrop-filter: blur(28px) saturate(160%);
+  border: 1px solid var(--border);
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+  animation: rise var(--slow) var(--ease);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+}
+
+/* Halo colore qui ne s'allume qu'en ecoute. */
+.glow {
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: var(--accent-grad);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity var(--slow) var(--ease);
+  pointer-events: none;
+}
+.card[data-state="recording"] .glow {
+  opacity: 0.9;
+}
+.card[data-state="transcribing"] .glow {
+  opacity: 0.45;
+}
+
+/* ------------------------------------------------------------- bandeau */
+
+.strip {
+  flex: 0 0 auto;
+  height: 112px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 20px;
+}
+
+.pulse {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  transition: background var(--fast) var(--ease);
+}
+.card[data-state="recording"] .pulse {
+  background: var(--danger);
+  animation: breathe 1.5s ease-in-out infinite;
+}
+.card[data-state="transcribing"] .pulse {
+  background: var(--accent-2);
+  animation: breathe 0.8s ease-in-out infinite;
+}
+.card[data-state="done"] .pulse {
+  background: var(--ok);
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 currentColor;
+    opacity: 1;
+  }
+  50% {
+    box-shadow: 0 0 0 6px transparent;
+    opacity: 0.55;
+  }
+}
+
+/* Forme d'onde : barres injectees par JS, pilotees par le niveau reel. */
+.wave {
+  flex: 1 1 auto;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  overflow: hidden;
+}
+
+.wave i {
+  display: block;
+  width: 3px;
+  height: 3px;
+  min-height: 3px;
+  border-radius: 99px;
+  background: var(--accent-grad);
+  opacity: 0.28;
+  /* Transition courte : les barres suivent la voix sans trainer. */
+  transition:
+    height 90ms var(--ease),
+    opacity 90ms linear;
+}
+.card[data-state="recording"] .wave i {
+  opacity: 0.95;
+}
+
+.card[data-state="transcribing"] .wave i {
+  opacity: 0.6;
+  animation: shimmer 1.1s ease-in-out infinite;
+  animation-delay: calc(var(--i) * 26ms);
+}
+@keyframes shimmer {
+  0%,
+  100% {
+    height: 4px;
+    opacity: 0.25;
+  }
+  50% {
+    height: 22px;
+    opacity: 0.85;
+  }
+}
+
+.meta {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  min-width: 72px;
+}
+
+.timer {
+  font-family: var(--mono);
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.4px;
+  color: var(--text);
+}
+
+.hint {
+  font-size: 11px;
+  color: var(--text-faint);
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------ relecture */
+
+.review {
+  flex: 1 1 auto;
+  display: none;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 20px 18px;
+  min-height: 0;
+}
+.card[data-state="done"] .review {
+  display: flex;
+  animation: fade var(--slow) var(--ease);
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.text {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px;
+  border-radius: var(--r-md);
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--border);
+  font-size: 14.5px;
+  line-height: 1.62;
+  color: var(--text);
+  user-select: text;
+  outline: none;
+  transition: border-color var(--fast) var(--ease);
+}
+.text:focus {
+  border-color: var(--border-strong);
+}
+
+.actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.badge {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.btn {
+  padding: 8px 16px;
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  font-weight: 500;
+  transition:
+    transform var(--fast) var(--ease),
+    filter var(--fast) var(--ease),
+    background var(--fast) var(--ease);
+}
+.btn:active {
+  transform: scale(0.96);
+}
+
+.btn.primary {
+  background: var(--accent-grad);
+  color: #fff;
+  box-shadow: 0 3px 12px rgba(124, 92, 255, 0.32);
+}
+.btn.primary:hover {
+  filter: brightness(1.1);
+}
+.btn.primary.copied {
+  background: var(--ok);
+  box-shadow: none;
+}
+
+.btn.ghost {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-dim);
+}
+.btn.ghost:hover {
+  background: rgba(255, 255, 255, 0.11);
+  color: var(--text);
+}
+
+/* Le service est injoignable : on le dit plutot que de rester fige sur "Pret". */
+.card[data-offline="true"] .hint {
+  color: var(--warn);
+}

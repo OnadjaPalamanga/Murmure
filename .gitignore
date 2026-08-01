@@ -1,0 +1,17 @@
+# Environnements et dependances
+backend/.venv/
+frontend/node_modules/
+__pycache__/
+*.egg-info/
+
+# Artefacts de compilation
+frontend/src-tauri/target/
+frontend/src-tauri/gen/
+
+# Modeles telecharges (plusieurs Go)
+models/
+!models/.gitkeep
+
+# Donnees locales
+*.db
+*.log

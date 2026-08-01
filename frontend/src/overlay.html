@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <title>Murmure</title>
+    <link rel="stylesheet" href="tokens.css" />
+    <link rel="stylesheet" href="overlay.css" />
+  </head>
+  <body>
+    <div class="card" id="card" data-state="idle">
+      <div class="glow" aria-hidden="true"></div>
+
+      <!-- Bandeau compact : etat + forme d'onde + chrono -->
+      <header class="strip" data-tauri-drag-region>
+        <div class="pulse" id="pulse" aria-hidden="true"></div>
+
+        <div class="wave" id="wave" aria-hidden="true"></div>
+
+        <div class="meta">
+          <span class="timer" id="timer">00:00</span>
+          <span class="hint" id="hint">Prêt</span>
+        </div>
+      </header>
+
+      <!-- Zone de relecture, masquee tant qu'il n'y a pas de texte -->
+      <section class="review" id="review">
+        <div class="text" id="text" contenteditable="true" spellcheck="false"></div>
+        <footer class="actions">
+          <span class="badge" id="badge"></span>
+          <div class="spacer"></div>
+          <button class="btn ghost" id="btn-redo">Refaire</button>
+          <button class="btn primary" id="btn-copy">Copier</button>
+        </footer>
+      </section>
+    </div>
+
+    <script type="module" src="overlay.js"></script>
+  </body>
+</html>

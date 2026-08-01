@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <title>Murmure</title>
+    <link rel="stylesheet" href="tokens.css" />
+    <link rel="stylesheet" href="main.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <nav class="sidebar">
+        <div class="brand">
+          <span class="mark"></span>
+          <span class="name">Murmure</span>
+        </div>
+
+        <button class="nav-item active" data-tab="history">Historique</button>
+        <button class="nav-item" data-tab="models">Modèles</button>
+        <button class="nav-item" data-tab="settings">Réglages</button>
+
+        <div class="sidebar-foot">
+          <div class="status" id="status">
+            <span class="dot" id="status-dot"></span>
+            <span id="status-text">Connexion…</span>
+          </div>
+          <div class="stat" id="stats"></div>
+        </div>
+      </nav>
+
+      <main class="content">
+        <!-- ------------------------------------------------ Historique -->
+        <section class="panel active" data-panel="history">
+          <header class="panel-head">
+            <h1>Historique</h1>
+            <input
+              type="search"
+              id="search"
+              class="search"
+              placeholder="Rechercher dans les dictées…"
+              autocomplete="off"
+            />
+          </header>
+          <div class="list" id="history-list"></div>
+        </section>
+
+        <!-- --------------------------------------------------- Modèles -->
+        <section class="panel" data-panel="models">
+          <header class="panel-head">
+            <h1>Modèles</h1>
+            <p class="sub">
+              Dépose n'importe quel modèle CTranslate2 ou ONNX dans
+              <code>models/</code> : il apparaîtra ici au redémarrage du service.
+            </p>
+          </header>
+          <div class="cards" id="model-cards"></div>
+        </section>
+
+        <!-- -------------------------------------------------- Réglages -->
+        <section class="panel" data-panel="settings">
+          <header class="panel-head"><h1>Réglages</h1></header>
+
+          <div class="form" id="settings-form">
+            <fieldset>
+              <legend>Déclenchement</legend>
+
+              <label class="row">
+                <span class="label">Raccourci global</span>
+                <input type="text" id="set-hotkey" class="input" placeholder="Ctrl+Alt+Space" />
+              </label>
+
+              <label class="row">
+                <span class="label">
+                  Mode
+                  <em>Maintenir : parle tant que la touche est enfoncée.</em>
+                </span>
+                <select id="set-hotkey_mode" class="input">
+                  <option value="hold">Maintenir la touche</option>
+                  <option value="toggle">Appuyer / ré-appuyer</option>
+                </select>
+              </label>
+            </fieldset>
+
+            <fieldset>
+              <legend>Micro</legend>
+
+              <label class="row">
+                <span class="label">Périphérique d'entrée</span>
+                <select id="set-input_device" class="input"></select>
+              </label>
+
+              <label class="row">
+                <span class="label">
+                  Pré-enregistrement
+                  <em>Capture ce qui précède l'appui, pour ne pas perdre le premier mot.</em>
+                </span>
+                <span class="range">
+                  <input type="range" id="set-preroll_ms" min="0" max="1000" step="50" />
+                  <output id="out-preroll_ms"></output>
+                </span>
+              </label>
+
+              <label class="row">
+                <span class="label">
+                  Micro maintenu ouvert
+                  <em>Évite de repayer l'ouverture du périphérique entre deux dictées.</em>
+                </span>
+                <span class="range">
+                  <input type="range" id="set-mic_keepalive_s" min="0" max="300" step="10" />
+                  <output id="out-mic_keepalive_s"></output>
+                </span>
+              </label>
+            </fieldset>
+
+            <fieldset>
+              <legend>Après la dictée</legend>
+
+              <label class="row switch">
+                <span class="label">Copier dans le presse-papier</span>
+                <input type="checkbox" id="set-copy_to_clipboard" />
+              </label>
+
+              <label class="row switch">
+                <span class="label">
+                  Afficher la fenêtre de relecture
+                  <em>Décoché : le texte est copié et la fenêtre disparaît aussitôt.</em>
+                </span>
+                <input type="checkbox" id="set-show_review_window" />
+              </label>
+
+              <label class="row switch">
+                <span class="label">
+                  Conserver l'audio
+                  <em>Garde le wav de chaque dictée à côté de l'entrée d'historique.</em>
+                </span>
+                <input type="checkbox" id="set-keep_audio" />
+              </label>
+
+              <label class="row switch">
+                <span class="label">Supprimer le point final</span>
+                <input type="checkbox" id="set-trim_trailing_period" />
+              </label>
+            </fieldset>
+
+            <fieldset>
+              <legend>Moteur</legend>
+
+              <label class="row switch">
+                <span class="label">
+                  Utiliser le GPU
+                  <em>Décoché : tout tourne sur le CPU. Plus lent, mais zéro VRAM.</em>
+                </span>
+                <input type="checkbox" id="set-prefer_gpu" />
+              </label>
+
+              <label class="row switch">
+                <span class="label">
+                  Précharger au démarrage
+                  <em>Le modèle est chargé dès le lancement : la première dictée est instantanée.</em>
+                </span>
+                <input type="checkbox" id="set-preload_on_start" />
+              </label>
+            </fieldset>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast" id="toast"></div>
+    <script type="module" src="main.js"></script>
+  </body>
+</html>
