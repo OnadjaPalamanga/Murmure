@@ -1,24 +1,35 @@
-# Installe Murmure pour un usage quotidien : compile la version release et
-# l'ajoute au demarrage de la session Windows.
+# Installe Murmure pour un usage quotidien : compile la version release, la pose
+# dans le menu Demarrer et l'ajoute au demarrage de la session Windows.
 #
 #   .\install.ps1              installe
-#   .\install.ps1 -Uninstall   retire le demarrage automatique
+#   .\install.ps1 -Uninstall   retire les raccourcis
 #
 # Aucun privilege administrateur requis : tout se fait dans le profil utilisateur.
+#
+# Le dossier du projet EST l'installation : les raccourcis pointent dessus, rien
+# n'est copie ailleurs. C'est delibere — l'environnement Python pese 2,5 Go et
+# les modeles 14 Go. Un installeur qui les dupliquerait creerait un second
+# Murmure, avec sa propre version, et rien n'empecherait de lancer le mauvais.
 
 param([switch]$Uninstall)
 
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 $startup = [Environment]::GetFolderPath("Startup")
+$programs = [Environment]::GetFolderPath("Programs")
 $link = Join-Path $startup "Murmure.lnk"
+$menu = Join-Path $programs "Murmure.lnk"
 
 if ($Uninstall) {
-    if (Test-Path $link) {
-        Remove-Item $link -Force
-        Write-Host "Demarrage automatique retire." -ForegroundColor Green
+    $removed = @()
+    foreach ($path in @($link, $menu)) {
+        if (Test-Path $path) { Remove-Item $path -Force; $removed += $path }
+    }
+    if ($removed) {
+        Write-Host "Raccourcis retires :" -ForegroundColor Green
+        $removed | ForEach-Object { Write-Host "  $_" }
     } else {
-        Write-Host "Murmure n'etait pas au demarrage."
+        Write-Host "Murmure n'avait aucun raccourci installe."
     }
     Write-Host "Le dossier du projet et tes donnees sont intacts."
     Write-Host "Historique et reglages : $env:APPDATA\Murmure"
@@ -64,22 +75,29 @@ if ($stale) {
 }
 if (-not (Test-Path $exe)) { throw "Compilation echouee : $exe introuvable." }
 
-# --- 3. Demarrage automatique --------------------------------------------
-# Le binaire retrouve seul le service Python en remontant l'arborescence, et le
-# lance au besoin : il n'y a qu'un seul element a demarrer.
+# --- 3. Raccourcis ---------------------------------------------------------
+# Deux raccourcis vers le MEME binaire : le menu Demarrer pour le lancer a la
+# main (et le retrouver a la recherche, ou l'epingler), le dossier Demarrage
+# pour qu'il soit la des l'ouverture de session. Le binaire retrouve seul le
+# service Python en remontant l'arborescence : il n'y a qu'un element a lancer,
+# et un second lancement rouvre la fenetre de l'instance en place au lieu d'en
+# creer une deuxieme.
 $shell = New-Object -ComObject WScript.Shell
-$shortcut = $shell.CreateShortcut($link)
-$shortcut.TargetPath = $exe
-$shortcut.WorkingDirectory = Split-Path $exe
-$shortcut.Description = "Murmure - dictee locale"
-$shortcut.IconLocation = $exe
-$shortcut.Save()
+foreach ($path in @($menu, $link)) {
+    $shortcut = $shell.CreateShortcut($path)
+    $shortcut.TargetPath = $exe
+    $shortcut.WorkingDirectory = Split-Path $exe
+    $shortcut.Description = "Murmure - dictee locale instantanee"
+    $shortcut.IconLocation = $exe
+    $shortcut.Save()
+}
 
 Write-Host ""
 Write-Host "Murmure est installe." -ForegroundColor Green
-Write-Host "  application : $exe"
-Write-Host "  au demarrage: $link"
-Write-Host "  donnees     : $env:APPDATA\Murmure"
+Write-Host "  application  : $exe"
+Write-Host "  menu Demarrer: $menu"
+Write-Host "  au demarrage : $link"
+Write-Host "  donnees      : $env:APPDATA\Murmure"
 Write-Host ""
 Write-Host "Lance-le maintenant sans redemarrer :" -ForegroundColor Cyan
 Write-Host "  Start-Process '$exe'"

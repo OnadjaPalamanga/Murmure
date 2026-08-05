@@ -399,6 +399,24 @@ neuf, et rien dans l'interface ne dit son âge.
 > jours de travail. Les deux se lançaient, les deux affichaient l'interface
 > d'avant — sans le moindre message pour dire laquelle était périmée.
 
+### Une seule instance
+
+Double-cliquer l'exécutable une seconde fois ne lance pas un second Murmure :
+le plugin `single-instance` est enregistré **avant tous les autres**, et la
+seconde instance meurt avant d'avoir rien enregistré. Elle demande d'abord à
+celle en place d'ouvrir sa fenêtre — un second lancement veut dire « montre-moi
+Murmure », pas « démarre-en un autre ».
+
+L'ordre d'enregistrement n'est pas un détail de style. Le vrai risque n'est pas
+d'avoir deux fenêtres, c'est que **deux applications se disputent le même
+raccourci global** : la seconde le confisque à la première, qui devient
+silencieuse sans rien signaler.
+
+> Le lancement du service Python vit dans `setup()`, pas en argument de
+> `.manage()`. Les arguments du builder sont évalués **avant** l'initialisation
+> des plugins : une seconde instance sondait le port 8756 pendant 600 ms avant
+> de mourir, pour un lancement dont on savait déjà qu'il n'aboutirait pas.
+
 ### Un seul service à la fois
 
 Le port 8756 se prend au premier arrivé, et un service lancé par `run.ps1`

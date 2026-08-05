@@ -371,6 +371,18 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // EN PREMIER, avant tout autre plugin. Une seconde instance doit mourir
+        // avant d'avoir enregistre quoi que ce soit : sans ca, deux icones dans
+        // la zone de notification, deux fenetres, et deux applications qui se
+        // disputent le meme raccourci global — la seconde le vole a la premiere,
+        // qui devient silencieuse.
+        //
+        // Le second lancement n'est pas une erreur pour autant : c'est
+        // quelqu'un qui veut voir Murmure. On montre donc la fenetre de
+        // l'instance en place, exactement comme un clic sur l'icone.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            open_main(app.clone(), None);
+        }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -390,7 +402,6 @@ pub fn run() {
                 .build(),
         )
         .manage(HotkeyState(Mutex::new(Hotkey::default())))
-        .manage(ServiceProcess(Mutex::new(spawn_service())))
         .invoke_handler(tauri::generate_handler![
             show_overlay,
             hide_overlay,
@@ -404,6 +415,14 @@ pub fn run() {
         ])
         .setup(|app| {
             let handle = app.handle().clone();
+
+            // Ici, et pas en argument de `.manage()` dans la chaine : les
+            // arguments du builder sont evalues AVANT que les plugins ne
+            // s'initialisent. Une seconde instance sondait donc le port avant
+            // de mourir — inutile, et 600 ms de latence sur un lancement dont
+            // on sait deja qu'il n'aboutira pas.
+            app.manage(ServiceProcess(Mutex::new(spawn_service())));
+
             build_tray(&handle)?;
 
             // L'echec est conserve dans HotkeyState et affiche par l'UI au
