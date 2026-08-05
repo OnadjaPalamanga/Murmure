@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import signal
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -14,12 +15,24 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 
+from . import __version__
 from .service import Service
 
 log = logging.getLogger(__name__)
 
 HOST = "127.0.0.1"
 PORT = 8756
+
+# Empreinte du service : ce qui distingue « un service repond » de « LE service
+# de cette version repond ». Le port seul ne le dit pas — un service demarre
+# des jours plus tot le detient tout aussi bien, et l'interface se retrouve a
+# piloter un backend qui ignore la moitie de ses reglages. Mesure sur le vif :
+# un service reste ouvert pendant quatre jours affichait des menus vides sans
+# la moindre erreur, parce que personne n'avait demande son age.
+#
+# `SETTINGS_REVISION` monte des qu'un reglage est ajoute, retire ou change de
+# sens. La version du paquet ne suffit pas : elle bouge trop rarement.
+SETTINGS_REVISION = 2
 
 service = Service()
 
@@ -37,7 +50,42 @@ app = FastAPI(title="Murmure", lifespan=lifespan)
 
 @app.get("/health")
 async def health() -> JSONResponse:
-    return JSONResponse({"ok": True, "state": service.state, **service.engine_status()})
+    """Etat du service, et surtout de QUELLE version il est.
+
+    L'application compare `settings_revision` a la sienne avant de piloter ce
+    service : sans ca, un backend perime repond normalement a tout et l'ecart
+    ne se voit que sur des reglages inexplicablement vides.
+    """
+    return JSONResponse(
+        {
+            "ok": True,
+            "state": service.state,
+            "version": __version__,
+            "settings_revision": SETTINGS_REVISION,
+            **service.engine_status(),
+        }
+    )
+
+
+@app.post("/shutdown")
+async def shutdown() -> JSONResponse:
+    """Arrete le service. Reserve au remplacement d'une version perimee.
+
+    L'application appelle ceci quand elle trouve sur le port un service d'une
+    autre revision : sans quoi il faudrait deviner son PID, et le service lance
+    par `run.ps1` n'est pas un enfant de l'application. Le service n'ecoute que
+    sur 127.0.0.1 — cette route n'est joignable que depuis la machine.
+    """
+    log.info("Arret demande : une autre version prend la main")
+
+    async def stop() -> None:
+        # Apres la reponse, sinon l'appelant voit une connexion coupee et ne
+        # sait pas si l'arret a ete accepte.
+        await asyncio.sleep(0.1)
+        signal.raise_signal(signal.SIGTERM)
+
+    asyncio.create_task(stop())
+    return JSONResponse({"ok": True, "stopping": True})
 
 
 @app.get("/audio/{entry_id}")

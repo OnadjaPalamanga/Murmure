@@ -443,6 +443,11 @@ function writeField(name, value) {
   else if (name === "input_device") node.value = value === null ? "" : String(value);
   else node.value = value ?? "";
 
+  // Un reglage que le service ne renvoie pas — version plus ancienne que
+  // l'interface — laisserait un menu vide, sans rien qui explique pourquoi.
+  // On retombe sur sa premiere option, celle que le HTML declare par defaut.
+  if (node.tagName === "SELECT" && node.selectedIndex < 0) node.selectedIndex = 0;
+
   const out = document.getElementById(`out-${name}`);
   if (out) out.textContent = readout(name, node.value);
 }

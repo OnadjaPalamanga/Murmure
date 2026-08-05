@@ -377,6 +377,53 @@ frontend/                application Tauri 2
 Le frontend ne parle au backend que par WebSocket sur `127.0.0.1:8756`.
 Les deux se relancent indépendamment.
 
+### Un seul binaire
+
+`target/release/murmure.exe` est le **seul exécutable lançable**, et c'est vers
+lui que pointe le raccourci posé par `install.ps1`. Deux choses ont été
+désactivées pour que ça reste vrai :
+
+- **Aucun installeur n'est produit.** `bundle.active` est à `false` dans
+  `tauri.conf.json`. Un `Murmure_x.y.z_x64-setup.exe` posé à côté installerait
+  une seconde copie, avec sa propre version — et rien n'empêche de
+  double-cliquer la mauvaise. À réactiver le jour d'une vraie distribution.
+- **`target/debug/` n'est pas un endroit d'où lancer l'application.** `run.ps1`
+  y compile pour le développement, mais ce binaire vieillit dès qu'on rebâtit le
+  release, et il est tout aussi double-cliquable.
+
+`install.ps1` recompile dès que le binaire est **plus vieux qu'une source**, et
+non plus sur sa seule existence : un binaire périmé se lance aussi bien qu'un
+neuf, et rien dans l'interface ne dit son âge.
+
+> Symptôme vécu : un `release` et un `debug` compilés le même jour, puis quatre
+> jours de travail. Les deux se lançaient, les deux affichaient l'interface
+> d'avant — sans le moindre message pour dire laquelle était périmée.
+
+### Un seul service à la fois
+
+Le port 8756 se prend au premier arrivé, et un service lancé par `run.ps1`
+survit à la fermeture de sa console. Sans garde-fou, l'application se raccorde
+au premier venu : elle pilote alors un backend qui ignore la moitié de ses
+réglages, et rien ne le dit — les menus s'affichent simplement vides.
+
+D'où `SETTINGS_REVISION`, déclaré **deux fois** :
+
+| Fichier | Constante |
+| --- | --- |
+| `backend/src/murmure/server.py` | `SETTINGS_REVISION` |
+| `frontend/src-tauri/src/lib.rs` | `SETTINGS_REVISION` |
+
+Au démarrage, l'application interroge `/health`. Même numéro : elle se raccorde.
+Numéro différent : elle arrête le service par `/shutdown` et relance le sien.
+
+> **Monter les deux ensemble** dès qu'un réglage est ajouté, retiré ou change de
+> sens. Ne monter que celui du backend rend tout service inacceptable pour
+> l'application installée ; ne monter que celui du frontend fait tuer un service
+> parfaitement valide à chaque démarrage.
+
+La version du paquet ne joue pas ce rôle : elle bouge trop rarement pour suivre
+les réglages.
+
 ## Réglages
 
 `%APPDATA%\Murmure\config.toml` — seules les valeurs qui diffèrent du défaut y

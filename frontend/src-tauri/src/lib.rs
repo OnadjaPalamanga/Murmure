@@ -60,18 +60,101 @@ fn find_service_python() -> Option<(PathBuf, PathBuf)> {
     None
 }
 
-fn service_is_running() -> bool {
-    // Un simple TCP connect suffit : pas besoin de client HTTP pour ca.
-    std::net::TcpStream::connect_timeout(
-        &"127.0.0.1:8756".parse().unwrap(),
-        std::time::Duration::from_millis(400),
-    )
-    .is_ok()
+/// Revision des reglages attendue du service. Doit valoir `SETTINGS_REVISION`
+/// dans `backend/src/murmure/server.py` : les deux montent ensemble des qu'un
+/// reglage est ajoute, retire ou change de sens.
+const SETTINGS_REVISION: u32 = 2;
+
+/// Ce que repond le service sur le port 8756, s'il repond.
+enum ServiceState {
+    /// Personne n'ecoute.
+    Absent,
+    /// Un service de la bonne revision : on s'y raccroche.
+    Current,
+    /// Un service, mais d'une autre revision. Le cas courant en developpement :
+    /// celui lance par `run.ps1` survit a la fermeture de sa console et garde le
+    /// port pendant des jours. L'interface qui s'y raccroche pilote alors un
+    /// backend qui ignore la moitie de ses reglages, sans qu'aucune erreur ne
+    /// le dise — les menus sont juste vides.
+    Stale,
 }
 
+/// Interroge `/health` en HTTP brut. Un client HTTP complet serait
+/// disproportionne pour une requete vers 127.0.0.1 dont on ne lit qu'un entier.
+fn probe_service() -> ServiceState {
+    use std::io::{Read, Write};
+
+    let addr = "127.0.0.1:8756".parse().unwrap();
+    let timeout = std::time::Duration::from_millis(600);
+    let Ok(mut stream) = std::net::TcpStream::connect_timeout(&addr, timeout) else {
+        return ServiceState::Absent;
+    };
+    let _ = stream.set_read_timeout(Some(timeout));
+    let _ = stream.set_write_timeout(Some(timeout));
+
+    if stream
+        .write_all(b"GET /health HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
+        .is_err()
+    {
+        // Quelque chose ecoute sans repondre : ce n'est pas notre service, et
+        // le tuer serait presomptueux. On le laisse et on ne demarre rien.
+        return ServiceState::Current;
+    }
+
+    let mut body = String::new();
+    if stream.read_to_string(&mut body).is_err() {
+        return ServiceState::Current;
+    }
+
+    // Le JSON est produit par nous et tient sur une ligne : chercher la cle
+    // suffit, et evite d'embarquer serde pour un seul entier.
+    let found = body
+        .split("\"settings_revision\"")
+        .nth(1)
+        .and_then(|rest| rest.split(|c: char| c == ',' || c == '}').next())
+        .and_then(|value| value.trim_start_matches(&[':', ' '][..]).trim().parse::<u32>().ok());
+
+    match found {
+        Some(revision) if revision == SETTINGS_REVISION => ServiceState::Current,
+        _ => ServiceState::Stale,
+    }
+}
+
+/// Termine le service qui occupe le port sans etre a la bonne revision.
+/// On ne devine pas son PID : le service se coupe lui-meme sur `/shutdown`.
+#[cfg(windows)]
+fn stop_stale_service() {
+    use std::io::Write;
+
+    let addr = "127.0.0.1:8756".parse().unwrap();
+    let timeout = std::time::Duration::from_millis(600);
+    if let Ok(mut stream) = std::net::TcpStream::connect_timeout(&addr, timeout) {
+        let _ = stream.set_write_timeout(Some(timeout));
+        let _ = stream.write_all(b"POST /shutdown HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n");
+    }
+    // Laisser au processus le temps de rendre le port avant de le reprendre.
+    for _ in 0..20 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        if std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(150))
+            .is_err()
+        {
+            return;
+        }
+    }
+    eprintln!("Le service perime n'a pas rendu le port 8756.");
+}
+
+#[cfg(not(windows))]
+fn stop_stale_service() {}
+
 fn spawn_service() -> Option<Child> {
-    if service_is_running() {
-        return None;
+    match probe_service() {
+        ServiceState::Current => return None,
+        ServiceState::Stale => {
+            eprintln!("Service perime sur le port 8756 : arret avant de relancer.");
+            stop_stale_service();
+        }
+        ServiceState::Absent => {}
     }
 
     let (python, cwd) = find_service_python()?;

@@ -230,29 +230,25 @@
 
               <label class="row">
                 <span class="label">
-                  Polir quand tu t'arrêtes
+                  Polissage à la pause
                   <em
-                    >Dès que tu marques une vraie pause, les dernières phrases repartent au
-                    moteur d'un seul bloc. Il voit alors la phrase entière au lieu d'un
-                    morceau : la ponctuation, les majuscules et les mots répétés se
-                    remettent en place. Le texte n'est frappé au curseur qu'une fois poli —
-                    c'est ce qui évite d'avoir à revenir en arrière dans ton document.</em
+                    >Après chaque pause, les dernières phrases sont re-décodées ensemble :
+                    ponctuation, majuscules et répétitions corrigées. L'écriture au curseur
+                    attend le texte poli.</em
                   >
                 </span>
                 <select id="set-polish_mode" class="input">
-                  <option value="moteur">Oui — re-décodage à la pause (recommandé)</option>
-                  <option value="aucun">Non — chaque phrase telle qu'elle sort</option>
+                  <option value="moteur">Activé — re-décodage groupé (recommandé)</option>
+                  <option value="aucun">Désactivé — phrase par phrase</option>
                 </select>
               </label>
 
               <label class="row">
                 <span class="label">
-                  Aperçu pendant qu'on parle
+                  Aperçu pendant la dictée
                   <em
-                    >Affiche en grisé ce que le moteur entend, sans attendre la fin de la
-                    phrase. Jamais frappé au curseur, jamais enregistré. Sans carte
-                    graphique il reste inactif : il coûterait à la dictée le temps qu'il
-                    prétend lui faire gagner.</em
+                    >Affiche en grisé la phrase en cours, sans attendre qu'elle se termine.
+                    Jamais écrit au curseur. Inactif sans carte graphique.</em
                   >
                 </span>
                 <span class="range">
