@@ -13,7 +13,7 @@ from dataclasses import asdict, dataclass, fields
 from typing import Any
 
 from .paths import CONFIG_FILE
-from .streaming import MAX_PHRASE_S, SILENCE_MS
+from .streaming import MAX_PHRASE_S, POLISH_MAX_S, PREVIEW_MS, SILENCE_MS
 
 log = logging.getLogger(__name__)
 
@@ -55,6 +55,16 @@ class Settings:
     # service qui tournait avec un reglage different de celui qu'on mesurait.
     phrase_silence_ms: int = SILENCE_MS
     max_phrase_s: float = MAX_PHRASE_S
+    # Quand la parole retombe, les dernieres phrases repartent au moteur d'un
+    # seul bloc : voyant la phrase entiere, il rend la ponctuation, les
+    # majuscules et les doublons du mode differe. "aucun" en reste au texte
+    # phrase par phrase. La frappe au curseur attend le texte poli — c'est ce
+    # qui evite d'avoir a revenir en arriere dans le document de l'utilisateur.
+    polish_mode: str = "moteur"  # "moteur" | "aucun"
+    polish_max_s: float = POLISH_MAX_S
+    # Cadence de l'apercu grise pendant qu'on parle. 0 = pas d'apercu. Inactif
+    # de toute facon sans carte graphique : voir `_transcribe_preview`.
+    preview_ms: int = PREVIEW_MS
 
     # --- mise en forme ---
     trim_trailing_period: bool = False

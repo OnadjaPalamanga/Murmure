@@ -68,6 +68,10 @@ class Service:
 
         self._engine: Engine | None = None
         self._engine_lock = threading.Lock()
+        # Serialise les decodages. Une phrase et une fenetre de polissage
+        # l'attendent ; l'apercu, jamais — il saute son tour plutot que de
+        # retarder du texte definitif.
+        self._engine_busy = threading.Lock()
         self._loading = False
 
         self.recorder = Recorder(
@@ -83,6 +87,7 @@ class Service:
         # phrase consequente : seul le thread du streamer y touche.
         self._stream_latency_ms = 0
         self._stream_language: str | None = None
+        self._preview_off_logged = False
 
     # ------------------------------------------------------- evenements
 
@@ -302,6 +307,8 @@ class Service:
         settings = self.config.settings
         self._stream_latency_ms = 0
         self._stream_language = None
+        self._preview_off_logged = False
+        polishing = settings.polish_mode != "aucun"
 
         streamer = PhraseStreamer(
             transcribe=self._transcribe_phrase,
@@ -313,8 +320,20 @@ class Service:
             prepare=self.ensure_engine,
             on_activity=lambda speaking: self.emit({"type": "speech", "speaking": speaking}),
             on_error=lambda exc: self.emit({"type": "error", "message": str(exc)}),
+            polish=self._polish_window if polishing else None,
+            on_revise=(
+                lambda text, first, last: self.emit(
+                    {"type": "revise", "text": text, "from_index": first, "to_index": last}
+                )
+            )
+            if polishing
+            else None,
+            preview=self._transcribe_preview,
+            on_preview=lambda text: self.emit({"type": "preview", "text": text}),
             silence_ms=settings.phrase_silence_ms,
             max_phrase_s=settings.max_phrase_s,
+            polish_max_s=settings.polish_max_s,
+            preview_ms=settings.preview_ms,
         )
         streamer.start()
         self._streamer = streamer
@@ -329,10 +348,11 @@ class Service:
         if audio.size and float(np.abs(audio).max()) < SILENCE_PEAK:
             return ""
         engine = self.ensure_engine()
-        result = engine.transcribe(
-            normalise_for_engine(audio),
-            language=self._resolved_language() or self._stream_language,
-        )
+        with self._engine_busy:
+            result = engine.transcribe(
+                normalise_for_engine(audio),
+                language=self._resolved_language() or self._stream_language,
+            )
         self._remember_language(result, len(audio) / SAMPLE_RATE)
         self._stream_latency_ms += result.latency_ms
 
@@ -345,6 +365,73 @@ class Service:
             return ""
         if _echoes_prompt(text, getattr(engine, "initial_prompt", None)):
             log.info("Phrase ignoree : le modele a recopie son amorce")
+            return ""
+        return text
+
+    def _polish_window(self, audio: np.ndarray) -> str:
+        """Re-decode d'un bloc une fenetre de plusieurs phrases deja emises.
+
+        C'est le CONTEXTE, et rien d'autre, qui repare la ponctuation : le meme
+        modele, sur le meme audio, mais voyant la phrase entiere au lieu d'un
+        groupe de souffle. Il rend ici ce qu'il rend en mode differe.
+
+        La langue reste celle epinglee pour la dictee : une fenetre re-detectee
+        a part ferait exactement le derapage que `_remember_language` evite.
+        """
+        if audio.size and float(np.abs(audio).max()) < SILENCE_PEAK:
+            return ""
+        engine = self.ensure_engine()
+        with self._engine_busy:
+            result = engine.transcribe(
+                normalise_for_engine(audio),
+                language=self._resolved_language() or self._stream_language,
+            )
+        # Ce calcul-la produit le texte livre : il compte dans la latence
+        # annoncee, sans quoi le chiffre flatterait le mode continu.
+        self._stream_latency_ms += result.latency_ms
+
+        text = self._post_process(result.text)
+        if _echoes_prompt(text, getattr(engine, "initial_prompt", None)):
+            log.info("Fenetre ignoree : le modele a recopie son amorce")
+            return ""
+        return text
+
+    def _transcribe_preview(self, audio: np.ndarray) -> str:
+        """Apercu de la phrase en cours. Provisoire : ni frappe, ni historise.
+
+        Ne prend jamais le moteur en attente. Si une phrase ou une fenetre est
+        en cours de decodage, l'apercu saute son tour : un affichage ne fait
+        pas patienter du texte definitif. Sa latence n'entre donc pas non plus
+        dans celle de la dictee — il n'en produit aucun mot livre.
+        """
+        engine = self._engine
+        if engine is None or not engine.is_loaded:
+            return ""  # le modele charge encore : les premiers mots attendront
+        if engine.device != "cuda":
+            # Sur processeur, huit secondes coutent plusieurs secondes de calcul
+            # au cran le plus lent : l'apercu prendrait a la dictee le temps
+            # qu'il pretend lui faire gagner.
+            if not self._preview_off_logged:
+                self._preview_off_logged = True
+                log.info("Apercu inactif : le moteur tourne sur processeur")
+            return ""
+        if not self._engine_busy.acquire(blocking=False):
+            return ""
+        try:
+            result = engine.transcribe(
+                normalise_for_engine(audio),
+                language=self._resolved_language() or self._stream_language,
+            )
+        finally:
+            self._engine_busy.release()
+
+        text = self._post_process(result.text)
+        # Memes rejets qu'une vraie phrase : sur une syllabe isolee ou une
+        # amorce recopiee, afficher la sortie brute donnerait a croire que la
+        # dictee derape alors que ce texte n'aurait jamais ete retenu.
+        if not any(ch.isalnum() for ch in text):
+            return ""
+        if _echoes_prompt(text, getattr(engine, "initial_prompt", None)):
             return ""
         return text
 

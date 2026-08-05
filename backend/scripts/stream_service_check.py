@@ -1,10 +1,26 @@
 """Verifie la dictee continue au niveau du Service, sans micro ni interface.
 
-    python scripts/stream_service_check.py <fichier.wav> [id_modele]
+    python scripts/stream_service_check.py <fichier.wav> [id_modele] [--realtime] [--verbose]
+
+`--realtime` rejoue le wav a sa vraie vitesse. C'est plus lent, mais c'est la
+seule facon de voir l'apercu et le polissage se declencher comme au micro : a
+pleine vitesse, la segmentation a fini avant que le moteur n'ait rendu la
+premiere phrase.
 
 Le wav est pousse dans le Recorder par le meme chemin que le micro reel
 (`on_block`), et tous les evenements diffuses sont affiches dans l'ordre. C'est
-ce que verra le frontend : `state`, `speech`, `commit`, puis un `final` unique.
+ce que verra le frontend : `state`, `speech`, `commit`, `revise`, puis un
+`final` unique.
+
+Ce que la verification tient, en plus du nombre d'evenements :
+
+  * les fenetres de polissage RECOUVRENT toutes les phrases, sans trou ni
+    chevauchement — `from_index` reprend exactement ou la precedente s'arrete.
+    Un trou signifierait du texte affiche puis jamais remplace ; un
+    chevauchement, du texte ecrit deux fois au curseur.
+  * le texte de l'entree d'historique est exactement la concatenation de ce qui
+    a ete diffuse. C'est le contrat sur lequel le frontend s'appuie pour ne pas
+    reinjecter la dictee une seconde fois.
 
 L'historique et la configuration sont rediriges vers un dossier temporaire :
 lancer cette verification ne salit pas les donnees de l'utilisateur.
@@ -28,7 +44,10 @@ from murmure import service as service_mod  # noqa: E402
 from murmure.engines.base import SAMPLE_RATE  # noqa: E402
 from murmure.paths import ensure_dirs  # noqa: E402
 
-logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
+logging.basicConfig(
+    level=logging.INFO if "--verbose" in sys.argv else logging.WARNING,
+    format="%(levelname)s %(name)s: %(message)s",
+)
 
 BLOCK = SAMPLE_RATE * 20 // 1000
 
@@ -47,8 +66,10 @@ def main() -> int:
         print(__doc__)
         return 1
 
-    wav = Path(sys.argv[1])
-    model_id = sys.argv[2] if len(sys.argv) > 2 else "whisper-large-v3-turbo"
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    realtime = "--realtime" in sys.argv
+    wav = Path(args[0])
+    model_id = args[1] if len(args) > 1 else "whisper-large-v3-turbo"
     audio = load_audio(wav)
 
     # Isolation des donnees. Les valeurs par defaut de `History()` et
@@ -82,6 +103,11 @@ def main() -> int:
         stamp = f"[{time.perf_counter() - started:6.2f}s]"
         if kind == "commit":
             print(f"{stamp} commit  #{event['index']}  {event['text']}")
+        elif kind == "revise":
+            span = f"{event['from_index']}-{event['to_index']}"
+            print(f"{stamp} revise  #{span:7} {event['text']}")
+        elif kind == "preview":
+            print(f"{stamp} apercu  {event['text']}")
         elif kind == "state":
             print(f"{stamp} state   {event['state']}")
         elif kind == "speech":
@@ -105,10 +131,16 @@ def main() -> int:
     svc.start()
     assert svc.state == "streaming", svc.state
 
+    # L'horloge du rejeu suit le debut de la lecture, pas le bloc precedent :
+    # cumuler des `sleep` derive, et la derive se voit sur une dictee d'une minute.
+    playback = time.monotonic()
     for offset in range(0, len(audio), BLOCK):
         block = audio[offset : offset + BLOCK]
         captured.append(block)
         svc.recorder.on_block(block)
+        if realtime:
+            due = playback + (offset + len(block)) / SAMPLE_RATE
+            time.sleep(max(0.0, due - time.monotonic()))
 
     svc.stop_and_transcribe()
 
@@ -118,19 +150,41 @@ def main() -> int:
 
     finals = [e for e in events if e["type"] == "final"]
     commits = [e for e in events if e["type"] == "commit"]
+    revises = [e for e in events if e["type"] == "revise"]
+    previews = [e for e in events if e["type"] == "preview"]
+    polishing = svc.config.settings.polish_mode != "aucun"
 
     print(f"\n{'-' * 72}")
     print(f"  commits         : {len(commits)}")
+    print(f"  fenetres polies : {len(revises)}")
+    print(f"  apercus         : {len(previews)}")
     print(f"  finals          : {len(finals)} (doit valoir 1)")
 
     ok = len(finals) == 1 and svc.state == "idle"
+
+    if polishing:
+        # Chaque fenetre reprend a la phrase suivant celle ou s'arretait la
+        # precedente, et la derniere va jusqu'au bout : ni trou, ni doublon.
+        expected = 1
+        covered = True
+        for event in revises:
+            covered = covered and event["from_index"] == expected
+            expected = event["to_index"] + 1
+        covered = covered and expected == len(commits) + 1
+        print(f"  couverture      : {covered} (les fenetres recouvrent 1-{len(commits)})")
+        ok = ok and covered
+        pieces = [e["text"] for e in revises]
+    else:
+        pieces = [c["text"] for c in commits]
+
     if finals:
         entry = finals[0]["entry"]
-        joined = " ".join(c["text"] for c in commits)
-        print(f"  entrees en base : {len(svc.history.search('', limit=10))} (doit valoir 1)")
-        print(f"  texte == commits: {entry['text'] == joined}")
+        joined = " ".join(p for p in pieces if p).strip()
+        stored = len(svc.history.search("", limit=10))
+        print(f"  entrees en base : {stored} (doit valoir 1)")
+        print(f"  texte == diffuse: {entry['text'] == joined}")
         print(f"\n  {entry['text']}\n")
-        ok = ok and entry["text"] == joined and len(svc.history.search("", limit=10)) == 1
+        ok = ok and entry["text"] == joined and stored == 1
     else:
         ok = False
 

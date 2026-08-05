@@ -33,6 +33,7 @@ let settings = {
   show_review_window: true,
   dictation_mode: "differe",
   inject_at_cursor: false,
+  polish_mode: "moteur",
 };
 let state = "idle";
 let recordingSince = 0;
@@ -42,11 +43,56 @@ let toggleActive = false;
 // Evite que le resultat rouvre l'overlay si l'utilisateur l'a ferme pendant
 // que la derniere transcription etait encore en cours.
 let manuallyDismissed = false;
-// Phrases deja frappees au curseur pendant la dictee en cours.
-let streamed = [];
+// Le texte de la dictee en cours, en trois couches du plus sur au plus fragile :
+//
+//   blocks   fenetres polies, definitives. C'est la SEULE couche qui part au
+//            curseur : on ne frappe dans le document de l'utilisateur que du
+//            texte qu'on ne reprendra plus, ce qui evite tout retour arriere.
+//   phrases  phrases validees qu'aucune fenetre n'a encore absorbees. Affichees,
+//            jamais frappees : une fenetre va les reecrire.
+//   preview  apercu de la phrase en cours, grise. Remplace a chaque tick.
+let blocks = [];
+let phrases = [];
+let preview = "";
+let phraseCount = 0;
+let injected = 0;
 let injectionWarned = false;
 
 const isContinuous = () => settings.dictation_mode === "continu";
+const isPolishing = () => settings.polish_mode !== "aucun";
+
+/// Le service continue de livrer du texte apres le relachement du raccourci :
+/// la derniere phrase, puis la derniere fenetre polie, tombent pendant l'etat
+/// « transcribing ». Les ignorer alors reviendrait a ne jamais les frapper dans
+/// le document — c'est tout un morceau de dictee qui manquerait a la fin.
+const isDelivering = () => state === "streaming" || state === "transcribing";
+
+function resetStream() {
+  blocks = [];
+  phrases = [];
+  preview = "";
+  phraseCount = 0;
+  injected = 0;
+}
+
+/// Le texte definitif en clair, l'apercu en grise a la suite. On reconstruit
+/// tout a chaque evenement : une fenetre polie reecrit plusieurs phrases d'un
+/// coup, un rendu incremental ne saurait pas les retirer.
+function renderStream() {
+  const settled = [...blocks, ...phrases].filter(Boolean).join(" ");
+  el.text.textContent = settled;
+  if (preview) {
+    const span = document.createElement("span");
+    span.className = "preview";
+    span.textContent = settled ? ` ${preview}` : preview;
+    el.text.appendChild(span);
+  }
+  el.text.scrollTop = el.text.scrollHeight;
+}
+
+function countPhrases() {
+  el.hint.textContent = `${phraseCount} phrase${phraseCount > 1 ? "s" : ""}`;
+}
 
 // ------------------------------------------------------------ waveform
 
@@ -112,7 +158,7 @@ function dismiss() {
   setState("idle", "Prêt");
   el.text.textContent = "";
   el.badge.textContent = "";
-  streamed = [];
+  resetStream();
   invoke("hide_overlay");
 }
 
@@ -121,7 +167,7 @@ async function beginDictation() {
   manuallyDismissed = false;
   el.text.textContent = "";
   el.badge.textContent = "";
-  streamed = [];
+  resetStream();
   injectionWarned = false;
   resetWave();
   startTicking();
@@ -165,7 +211,10 @@ function closeOverlay() {
 // s'entrelaceraient sinon, et le texte sortirait dans le desordre.
 let injectChain = Promise.resolve();
 
-function queueInjection(text, first) {
+function queueInjection(text) {
+  if (!settings.inject_at_cursor || !text) return injectChain;
+  const first = injected === 0;
+  injected += 1;
   injectChain = injectChain.then(() => injectPhrase(text, first)).catch(() => {});
   return injectChain;
 }
@@ -234,26 +283,62 @@ bus.on("model_loading", ({ label }) => {
   if (state !== "recording") el.hint.textContent = `Préparation ${label}…`;
 });
 
-// Une phrase vient d'etre transcrite : elle est definitive.
+// Une phrase vient d'etre transcrite. Definitive tant qu'on ne polit pas ;
+// sinon elle attend la fenetre qui la reecrira avec ses voisines, et ce n'est
+// donc pas encore le moment de la frapper dans le document.
 bus.on("commit", ({ text }) => {
-  if (state !== "streaming") return;
+  if (!isDelivering()) return;
   clearTimeout(hideTimer);
 
-  streamed.push(text);
-  if (settings.inject_at_cursor) queueInjection(text, streamed.length === 1);
+  phrases.push(text);
+  phraseCount += 1;
+  preview = "";
+  if (!isPolishing()) {
+    queueInjection(text);
+    blocks.push(...phrases.splice(0));
+  }
 
-  el.text.textContent = streamed.join(" ");
-  el.text.scrollTop = el.text.scrollHeight;
-  el.hint.textContent = `${streamed.length} phrase${streamed.length > 1 ? "s" : ""}`;
+  renderStream();
+  // Apres le relachement, l'indication utile est « Dernière phrase… » : la
+  // remplacer par un decompte laisserait croire que la dictee est finie.
+  if (state === "streaming") countPhrases();
+});
+
+// Ce que le moteur entend de la phrase en cours, sans attendre qu'elle finisse.
+// Provisoire par nature : affiche en grise, jamais frappe, jamais historise.
+bus.on("preview", ({ text }) => {
+  if (state !== "streaming") return;
+  preview = text;
+  renderStream();
+});
+
+// Une fenetre a ete re-decodee d'un bloc : elle remplace les phrases qu'elle
+// recouvre. C'est ici, et seulement ici, que le texte part au curseur.
+bus.on("revise", ({ text, from_index, to_index }) => {
+  if (!isDelivering()) return;
+  clearTimeout(hideTimer);
+
+  phrases.splice(0, to_index - from_index + 1);
+  blocks.push(text);
+  queueInjection(text);
+
+  renderStream();
 });
 
 // Silero a entendu une attaque ou une fin : de quoi montrer qu'une phrase est
 // en cours de formation, plutot que de laisser croire que rien ne se passe.
 bus.on("speech", ({ speaking }) => {
-  if (state !== "streaming" || !streamed.length) return;
-  el.hint.textContent = speaking
-    ? "Phrase en cours…"
-    : `${streamed.length} phrase${streamed.length > 1 ? "s" : ""}`;
+  if (state !== "streaming") return;
+  // L'apercu survit a la fin d'une phrase : le laisser jusqu'au `commit` evite
+  // que le texte disparaisse le temps du decodage. Mais une phrase rejetee — un
+  // raclement de gorge dont le moteur avait tire un mot — n'amene aucun commit,
+  // et son apercu resterait a l'ecran. La reprise de parole le balaie.
+  if (speaking) preview = "";
+  renderStream();
+
+  if (!phraseCount) return;
+  if (speaking) el.hint.textContent = "Phrase en cours…";
+  else countPhrases();
 });
 
 // L'overlay affiche aussi l'avancement : si on déclenche une dictée alors que le
@@ -278,12 +363,12 @@ bus.on("final", async (msg) => {
   el.badge.textContent = `${latency_ms} ms · ${realtime_factor}× · ${device}`;
   toggleActive = false;
 
-  // En continu, tout le texte est deja parti phrase par phrase — y compris la
-  // derniere, que `finish()` transcrit avant d'emettre `final`. On ne rejoue
+  // En continu, tout le texte est deja parti au fil de la dictee — y compris la
+  // derniere fenetre, que `finish()` polit avant d'emettre `final`. On ne rejoue
   // rien : on attend juste que la file de frappe se vide.
   if (wasStreamed) {
     await injectChain;
-    streamed = [];
+    resetStream();
   }
 
   if (settings.copy_to_clipboard) {

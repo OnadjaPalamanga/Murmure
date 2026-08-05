@@ -227,6 +227,39 @@
                   <output id="out-phrase_silence_ms"></output>
                 </span>
               </label>
+
+              <label class="row">
+                <span class="label">
+                  Polir quand tu t'arrêtes
+                  <em
+                    >Dès que tu marques une vraie pause, les dernières phrases repartent au
+                    moteur d'un seul bloc. Il voit alors la phrase entière au lieu d'un
+                    morceau : la ponctuation, les majuscules et les mots répétés se
+                    remettent en place. Le texte n'est frappé au curseur qu'une fois poli —
+                    c'est ce qui évite d'avoir à revenir en arrière dans ton document.</em
+                  >
+                </span>
+                <select id="set-polish_mode" class="input">
+                  <option value="moteur">Oui — re-décodage à la pause (recommandé)</option>
+                  <option value="aucun">Non — chaque phrase telle qu'elle sort</option>
+                </select>
+              </label>
+
+              <label class="row">
+                <span class="label">
+                  Aperçu pendant qu'on parle
+                  <em
+                    >Affiche en grisé ce que le moteur entend, sans attendre la fin de la
+                    phrase. Jamais frappé au curseur, jamais enregistré. Sans carte
+                    graphique il reste inactif : il coûterait à la dictée le temps qu'il
+                    prétend lui faire gagner.</em
+                  >
+                </span>
+                <span class="range">
+                  <input type="range" id="set-preview_ms" min="0" max="1500" step="100" />
+                  <output id="out-preview_ms"></output>
+                </span>
+              </label>
             </fieldset>
 
             <fieldset>

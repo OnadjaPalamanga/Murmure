@@ -68,8 +68,16 @@ Fermer la fenêtre principale ne quitte pas : le raccourci reste actif.
 
 Réglages ▸ *Mode de dictée* ▸ **Continu**. Le texte tombe alors phrase par
 phrase pendant que tu parles, au lieu d'arriver d'un bloc à la fin. Avec
-**Écrire au curseur**, chaque phrase est frappée dans l'application au premier
-plan — comme la dictée de Windows.
+**Écrire au curseur**, il est frappé dans l'application au premier plan — comme
+la dictée de Windows.
+
+Trois étages travaillent en même temps, du plus rapide au plus juste :
+
+| | Quand | Où ça va |
+| --- | --- | --- |
+| **Aperçu** | toutes les 500 ms, sans attendre la fin de la phrase | affiché en grisé, rien d'autre |
+| **Phrase** | à chaque frontière de phrase | affiché en clair |
+| **Fenêtre polie** | quand tu marques une vraie pause | affiché, **et frappé au curseur** |
 
 Le découpage se fait sur les **frontières de phrase**, jamais sur une horloge.
 Chaque morceau envoyé au moteur est un groupe de souffle complet, borné par du
@@ -81,6 +89,79 @@ sort entier.
 Le prix à payer est réel : **plus de relecture**. En différé le texte s'affiche
 et s'édite avant que tu t'en serves ; en continu il est déjà dans ton document.
 C'est pourquoi le différé reste le défaut.
+
+### Le polissage : pourquoi ce n'est pas un modèle de plus
+
+Une phrase découpée reste une phrase **amputée de son contexte**. Le modèle la
+ferme donc par un point et remet une majuscule à la suivante — et c'est là, pas
+sur les mots, que la dictée continue se voyait :
+
+> …je vais essayer de faire une comparaison. **Ou, à certaines époques,
+> j'explique. Cette personne vivait.** Qu'est-ce que certaines sociétés
+> construisaient ?
+
+Quand la parole retombe pour de bon, les dernières phrases **repartent au moteur
+d'un seul bloc**. Il voit alors la phrase entière et rend ce qu'il rend en
+différé. Même extrait, même audio, même modèle :
+
+> …je vais essayer de faire une comparaison **où, à certaines époques,
+> j'explique certains endroits, comment est-ce que certaines personnes
+> vivaient,** qu'est-ce que certaines sociétés construisaient…
+
+Ce n'est **pas un modèle de langue** qui repasse derrière. Un LLM reformulerait,
+et aucune consigne ne l'en empêche de façon sûre. Ici la sortie reste de la
+reconnaissance vocale : elle ne peut pas dire autre chose que ce qui a été
+prononcé. Le re-décodage récupère même des mots que les phrases isolées avaient
+perdus — « la condition » redevient « la condition des noirs ».
+
+Trois garde-fous, dans `polish.py` :
+
+- **Une fenêtre d'une seule phrase n'est pas re-décodée.** Ses échantillons sont
+  exactement ceux déjà transcrits : le calcul rendrait le même texte au même
+  prix. C'est le cas courant chez qui marque de vraies pauses, et il est gratuit.
+- **Un polissage qui déraille est refusé.** Sortie vide, ou boucle de répétition :
+  si le nombre de mots sort des bornes 0,6×–1,6× du texte brut, c'est le texte
+  brut qui reste. On ne remplace du texte correct que par du texte plausible.
+- **Les coutures sont dédoublonnées.** Deux fenêtres consécutives partagent les
+  marges d'attaque et de fin de leurs phrases ; le chevauchement est retiré.
+
+Le seuil de « vraie pause » est à **1,6 s**, et c'est mesuré. Sur trois minutes
+de dictée française réelle, les pauses entre phrases se répartissent presque
+toutes entre 0,7 et 1,6 s : le seuil coupe juste au-dessus du gros du peloton et
+laisse 2 à 4 phrases par fenêtre. Monter à 2,5 s en grouperait 5 à 6 — mais une
+fenêtre de 5 phrases dépasse le plafond de 20 s, et c'est alors le plafond qui
+tranche, à un endroit quelconque au lieu d'un vrai arrêt. **Les deux valeurs
+vont ensemble** ; changer l'une sans l'autre n'apporte rien.
+
+Sur 240 s de dictée continue : 40 phrases, 22 fenêtres dont 13 re-décodées,
+toutes entre 7,5 et 19,1 s. Le surcoût GPU est de l'ordre de 3 s.
+
+> **Le texte n'est frappé au curseur qu'une fois poli.** C'est délibéré : réviser
+> du texte déjà tapé demanderait d'envoyer des retours arrière dans le document,
+> et si tu as cliqué ailleurs entre-temps ils mangeraient ce que tu venais
+> d'écrire. L'overlay sert de vue en direct ; le document ne reçoit que du
+> définitif. Le décalage vaut une pause.
+
+### L'aperçu
+
+Une phrase ne tombe qu'une fois finie — jusqu'à plusieurs secondes de silence
+apparent. L'aperçu décode donc la phrase **en cours** toutes les 500 ms sans la
+fermer, et l'affiche en grisé. Il n'est jamais frappé au curseur ni enregistré :
+c'est un témoin, pas du texte.
+
+C'est le seul étage qui a le droit de ne rien faire. S'il ne peut pas prendre le
+moteur immédiatement, **il saute son tour** : un affichage provisoire ne doit
+jamais retarder une phrase. Sa latence n'entre pas non plus dans celle annoncée,
+puisqu'il ne produit aucun mot livré.
+
+Sans carte graphique il reste inactif, quel que soit le réglage : au cran le plus
+lent, huit secondes d'audio coûtent plusieurs secondes de calcul. Il prendrait à
+la dictée le temps qu'il prétend lui faire gagner.
+
+> L'intervalle réglé est un temps de **repos entre deux décodages**, pas une
+> période : à 500 ms sur `large-v3-turbo`, l'aperçu se rafraîchit en pratique
+> toutes les 700 à 800 ms. C'est ce qui l'empêche de saturer le GPU quand le
+> modèle ralentit.
 
 Deux règles tenues par le code plutôt que par la documentation :
 
@@ -100,6 +181,7 @@ Deux règles tenues par le code plutôt que par la documentation :
 | | Différé | Continu |
 | --- | --- | --- |
 | Le texte arrive | d'un bloc, à la fin | phrase par phrase |
+| Au curseur | à la fin | à chaque vraie pause |
 | Relecture avant usage | oui | non |
 | Raccourci | maintenir ou bascule | bascule, toujours |
 | Cran *sans carte graphique* | tous les modèles | `small` seulement, en auto |
@@ -278,7 +360,8 @@ backend/                 service Python (le modèle vit ici)
     audio.py             capture micro, tampon circulaire, pré-enregistrement
     engines/             moteurs interchangeables (Parakeet ONNX, faster-whisper)
     chunking.py          découpage sur les silences
-    streaming.py         dictée continue : segmentation VAD, phrase par phrase
+    streaming.py         dictée continue : segmentation VAD, aperçu, fenêtres
+    polish.py            garde-fous du re-décodage : coutures, quand refuser
     media.py             lecture de tout fichier audio/vidéo (soundfile, ffmpeg)
     download.py          progression de téléchargement par observation du cache
     service.py           orchestration micro → moteur → historique
@@ -315,6 +398,14 @@ cd backend
 `stream_check` montre le découpage et le moment où chaque phrase tombe
 (`--realtime` pour juger le ressenti). `stream_service_check` passe par le
 Service entier et vérifie le contrat que voit le frontend : une suite de
-`commit`, **un seul** `final`, et une seule entrée d'historique dont le texte
-est exactement la concaténation des phrases. Il travaille dans un dossier
-temporaire — l'historique réel n'est pas touché.
+`commit`, des `revise` qui **recouvrent toutes les phrases sans trou ni
+chevauchement**, **un seul** `final`, et une seule entrée d'historique dont le
+texte est exactement la concaténation de ce qui a été diffusé. Un trou
+signifierait du texte affiché puis jamais remplacé ; un chevauchement, du texte
+écrit deux fois dans le document.
+
+Il accepte lui aussi `--realtime` — indispensable pour voir l'aperçu et le
+polissage se déclencher comme au micro, car à pleine vitesse la segmentation a
+fini avant que le moteur n'ait rendu la première phrase — et `--verbose`, qui
+montre la taille de chaque fenêtre polie. Il travaille dans un dossier
+temporaire : l'historique réel n'est pas touché.

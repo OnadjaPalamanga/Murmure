@@ -287,6 +287,15 @@ body {
   border-color: var(--border-strong);
 }
 
+/* L'apercu est provisoire : il sera remplace par le texte de la phrase, puis
+   par celui de la fenetre polie. Il doit se lire sans jamais passer pour
+   acquis — d'ou le gris, et l'italique pour ceux qui distinguent mal les
+   nuances de gris sur fond sombre. */
+.text .preview {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
 .actions {
   flex: 0 0 auto;
   display: flex;

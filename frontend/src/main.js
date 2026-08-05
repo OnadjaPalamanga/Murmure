@@ -412,9 +412,22 @@ const FIELDS = [
   "dictation_mode",
   "inject_at_cursor",
   "phrase_silence_ms",
+  "polish_mode",
+  "preview_ms",
 ];
 
-const UNITS = { preroll_ms: "ms", mic_keepalive_s: "s", phrase_silence_ms: "ms" };
+const UNITS = {
+  preroll_ms: "ms",
+  mic_keepalive_s: "s",
+  phrase_silence_ms: "ms",
+  preview_ms: "ms",
+};
+
+/// « 0 ms » se lirait comme un reglage extreme alors que c'est un interrupteur.
+function readout(name, value) {
+  if (name === "preview_ms" && Number(value) === 0) return "inactif";
+  return `${value} ${UNITS[name] ?? ""}`.trim();
+}
 
 function readField(name) {
   const node = document.getElementById(`set-${name}`);
@@ -431,7 +444,7 @@ function writeField(name, value) {
   else node.value = value ?? "";
 
   const out = document.getElementById(`out-${name}`);
-  if (out) out.textContent = `${node.value} ${UNITS[name] ?? ""}`.trim();
+  if (out) out.textContent = readout(name, node.value);
 }
 
 /// Les reglages qui n'ont plus de sens en dictee continue sont grises plutot
@@ -448,7 +461,7 @@ function reflectDictationMode() {
     ? "En dictée continue, le raccourci fonctionne toujours en appuyer / ré-appuyer."
     : "";
 
-  for (const name of ["inject_at_cursor", "phrase_silence_ms"]) {
+  for (const name of ["inject_at_cursor", "phrase_silence_ms", "polish_mode", "preview_ms"]) {
     const node = document.getElementById(`set-${name}`);
     node.disabled = !continuous;
     node.closest(".row").dataset.inactive = String(!continuous);
@@ -464,7 +477,7 @@ function bindSettings() {
     // un raccourci incomplet a chaque frappe.
     node.addEventListener(isText ? "change" : "input", () => {
       const out = document.getElementById(`out-${name}`);
-      if (out) out.textContent = `${node.value} ${UNITS[name] ?? ""}`.trim();
+      if (out) out.textContent = readout(name, node.value);
 
       const value = readField(name);
       bus.send("update_settings", { settings: { [name]: value } });
