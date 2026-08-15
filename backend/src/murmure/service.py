@@ -16,13 +16,18 @@ from typing import Any
 import numpy as np
 import soundfile as sf
 
+from .align import assign_speakers, count_speakers, format_transcript
 from .audio import Recorder, list_input_devices
 from .config import ConfigStore
+from .diarize import TOTAL_DOWNLOAD_MB as DIARIZATION_MB
+from .diarize import DiarizationUnavailable, Diarizer, ensure_models
+from .diarize import is_installed as diarization_installed
+from .diarize import models_present as diarization_models_present
 from .download import DownloadWatcher
 from .engines.base import SAMPLE_RATE, Engine
 from .history import History
 from .media import AUDIO_EXT, VIDEO_EXT, find_ffmpeg, load_audio
-from .models import build_engine, get_spec, list_models
+from .models import build_engine, get_spec, list_models, resolve_spec
 from .paths import AUDIO_DIR, MODELS_DIR
 from .streaming import PhraseStreamer, normalise_for_engine
 
@@ -88,6 +93,9 @@ class Service:
         self._stream_latency_ms = 0
         self._stream_language: str | None = None
         self._preview_off_logged = False
+        # Charge a la premiere diarisation seulement, puis garde resident : un
+        # lot de fichiers ne doit pas relire les modeles a chaque piste.
+        self._diarizer: Diarizer | None = None
 
     # ------------------------------------------------------- evenements
 
@@ -148,7 +156,14 @@ class Service:
             if self._engine and self._engine.is_loaded:
                 return self._engine
 
-            spec = get_spec(self.model_id)
+            # `resolve_spec` et non `get_spec` : un identifiant devenu invalide
+            # ne doit pas rendre l'application inutilisable a chaque dictee. Si
+            # le repli a servi, on repare la configuration tout de suite —
+            # sinon l'avertissement reviendrait a chaque chargement et
+            # l'interface continuerait d'afficher un modele qui n'existe pas.
+            spec = resolve_spec(self.model_id)
+            if spec.id != self.model_id:
+                self.config.update({"model_id": spec.id})
             self._loading = True
             self.emit({"type": "model_loading", "model_id": spec.id, "label": spec.label})
             try:
@@ -555,8 +570,13 @@ class Service:
                     }
                 )
 
+                diarizing = bool(self.config.settings.diarize_files)
                 engine = self.ensure_engine()
-                result = engine.transcribe(audio, language=self._resolved_language())
+                # Dater les mots coute du calcul : on ne le demande que si
+                # quelqu'un va s'en servir pour attribuer les locuteurs.
+                result = engine.transcribe(
+                    audio, language=self._resolved_language(), timestamps=diarizing
+                )
                 text = self._post_process(result.text)
 
                 if not text:
@@ -570,6 +590,17 @@ class Service:
                     )
                     continue
 
+                segments = None
+                speakers = 0
+                if diarizing:
+                    # `text` sert de repli : il est deja mis en forme, et
+                    # `_diarize_file` ne doit pas repasser dessus. Appliquer les
+                    # remplacements deux fois sur le meme texte les composerait
+                    # — une regle « a » -> « aa » donnerait « aaaa ».
+                    text, segments, speakers = self._diarize_file(
+                        audio, result, path, fallback=text, index=index, total=total
+                    )
+
                 entry = self.history.add(
                     text=text,
                     model_id=self.model_id,
@@ -577,6 +608,7 @@ class Service:
                     audio_seconds=result.audio_seconds,
                     latency_ms=result.latency_ms,
                     audio_path=str(path),
+                    segments=segments,
                 )
                 self.emit(
                     {
@@ -586,6 +618,7 @@ class Service:
                         "entry": entry,
                         "latency_ms": result.latency_ms,
                         "realtime_factor": round(result.realtime_factor, 1),
+                        "speakers": speakers,
                     }
                 )
             except Exception as exc:  # noqa: BLE001
@@ -596,6 +629,77 @@ class Service:
 
         self._set_state("idle")
         self.emit({"type": "files_finished", "total": total})
+
+    def _diarize_file(
+        self, audio: np.ndarray, result, path: Path, *, fallback: str, index: int, total: int
+    ) -> tuple[str, list[dict] | None, int]:
+        """Attribue le texte aux locuteurs. Rend (texte, tours de parole, nombre).
+
+        **Ne fait jamais perdre une transcription.** Tout ce qui peut echouer ici
+        — dependance absente, telechargement coupe, modele illisible — se solde
+        par un retour a `fallback`, le texte continu deja obtenu et parfaitement
+        utilisable. Perdre une heure de transcription parce que l'attribution
+        des locuteurs a echoue serait hors de proportion.
+        """
+        settings = self.config.settings
+        name = path.name
+
+        def stage(message: str) -> None:
+            self.emit(
+                {
+                    "type": "file_progress",
+                    "stage": "diarizing",
+                    "index": index,
+                    "total": total,
+                    "name": name,
+                    "message": message,
+                }
+            )
+
+        try:
+            if not result.words:
+                # Le moteur n'a pas date les mots : sans eux il n'y a rien a
+                # attribuer. Cas d'un modele local depose a la main.
+                log.info("Diarisation impossible sur %s : aucun mot date", name)
+                return fallback, None, 0
+
+            stage(f"Identification des locuteurs — {name}…")
+            ensure_models(on_progress=stage)
+
+            if self._diarizer is None:
+                self._diarizer = Diarizer()
+            diarized = self._diarizer.diarize(
+                audio,
+                num_speakers=int(settings.diarize_speakers or 0),
+                threshold=float(settings.diarize_threshold),
+            )
+            if not diarized.segments:
+                return fallback, None, 0
+
+            blocks = assign_speakers(result.words, diarized.segments)
+            if not blocks:
+                return fallback, None, 0
+
+            # Les remplacements et le rognage s'appliquent bloc par bloc : les
+            # appliquer a la transcription mise en forme risquerait de manger un
+            # prefixe « Locuteur 2 : ».
+            for block in blocks:
+                block.text = self._post_process(block.text)
+
+            text = format_transcript(blocks)
+            if not text.strip():
+                return fallback, None, 0
+
+            return text, [b.to_dict() for b in blocks], count_speakers(blocks)
+
+        except DiarizationUnavailable as exc:
+            log.warning("Diarisation indisponible sur %s : %s", name, exc)
+            self.emit({"type": "error", "message": f"Diarisation indisponible : {exc}"})
+        except Exception as exc:  # noqa: BLE001 - jamais au prix de la transcription
+            log.exception("Diarisation en echec sur %s", name)
+            self.emit({"type": "error", "message": f"Diarisation en échec : {exc}"})
+
+        return fallback, None, 0
 
     # ------------------------------------------------------------- reglages
 
@@ -636,6 +740,14 @@ class Service:
             # Le selecteur de fichiers du frontend se construit a partir d'ici.
             "media_extensions": {"audio": AUDIO_EXT, "video": VIDEO_EXT},
             "has_ffmpeg": find_ffmpeg() is not None,
+            # L'interface doit pouvoir dire ce qui manque AVANT qu'on lance un
+            # fichier d'une heure : la dependance, ou seulement les modeles
+            # (35 Mo, telecharges au premier usage).
+            "diarization": {
+                "available": diarization_installed(),
+                "models_ready": diarization_models_present(),
+                "download_mb": DIARIZATION_MB,
+            },
         }
 
     def update_settings(self, changes: dict) -> dict:

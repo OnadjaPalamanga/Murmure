@@ -7,11 +7,12 @@ bibliotheque standard, donc zero dependance en plus.
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .paths import AUDIO_DIR, HISTORY_DB
@@ -48,6 +49,48 @@ CREATE TRIGGER IF NOT EXISTS entries_au AFTER UPDATE ON entries BEGIN
 END;
 """
 
+# Colonnes ajoutees apres coup. `CREATE TABLE IF NOT EXISTS` ne touche pas une
+# table existante : sans cette liste, une base creee par une version anterieure
+# garderait son ancien schema et toute lecture de la nouvelle colonne echouerait.
+#
+# Ajouter une entree ici suffit ; SQLite pose une colonne nullable sans
+# reecrire la table, et les anciennes lignes valent NULL — ce qui est
+# exactement « cette dictee n'a pas ete diarisee ».
+_MIGRATIONS: list[tuple[str, str]] = [
+    # (colonne, definition)
+    ("segments", "TEXT"),  # JSON : [{"speaker", "start", "end", "text"}, ...]
+]
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Applique les colonnes manquantes. Idempotent, et sans perte."""
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(entries)")}
+    for column, definition in _MIGRATIONS:
+        if column not in existing:
+            log.info("Historique : ajout de la colonne « %s »", column)
+            conn.execute(f"ALTER TABLE entries ADD COLUMN {column} {definition}")
+
+
+def _row_to_entry(row: sqlite3.Row) -> dict:
+    """Convertit une ligne en entree, tours de parole decodes.
+
+    Le seul endroit ou le JSON est relu : une base ecrite a la main, ou par une
+    version qui aurait stocke autre chose, ne doit pas faire disparaitre
+    l'historique entier de l'interface. On perd les tours de parole, pas la
+    dictee.
+    """
+    entry = dict(row)
+    raw = entry.get("segments")
+    if not raw:
+        entry["segments"] = None
+        return entry
+    try:
+        entry["segments"] = json.loads(raw)
+    except (TypeError, ValueError):
+        log.warning("Tours de parole illisibles sur l'entrée %s", entry.get("id"))
+        entry["segments"] = None
+    return entry
+
 
 class History:
     def __init__(self, db_path: Path = HISTORY_DB) -> None:
@@ -57,6 +100,7 @@ class History:
         self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
+        _migrate(self._conn)
         self._conn.commit()
 
     def add(
@@ -68,10 +112,11 @@ class History:
         audio_seconds: float = 0.0,
         latency_ms: int = 0,
         audio_path: str | None = None,
+        segments: list[dict] | None = None,
     ) -> dict:
         entry = {
             "id": uuid.uuid4().hex,
-            "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "created_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "text": text,
             "model_id": model_id,
             "device": device,
@@ -79,17 +124,25 @@ class History:
             "latency_ms": latency_ms,
             "audio_path": audio_path,
             "pinned": 0,
+            # Stocke en JSON plutot qu'en table liee : on ne fait jamais de
+            # requete sur un tour de parole isole, on les relit toujours en
+            # bloc avec leur dictee. Une table de plus n'apporterait qu'une
+            # jointure. NULL = dictee non diarisee, ce qu'etait tout
+            # l'historique anterieur.
+            "segments": json.dumps(segments, ensure_ascii=False) if segments else None,
         }
         with self._lock:
             self._conn.execute(
                 "INSERT INTO entries (id, created_at, text, model_id, device,"
-                " audio_seconds, latency_ms, audio_path, pinned)"
+                " audio_seconds, latency_ms, audio_path, pinned, segments)"
                 " VALUES (:id, :created_at, :text, :model_id, :device,"
-                " :audio_seconds, :latency_ms, :audio_path, :pinned)",
+                " :audio_seconds, :latency_ms, :audio_path, :pinned, :segments)",
                 entry,
             )
             self._conn.commit()
-        return entry
+        # L'appelant recoit les tours de parole sous forme utilisable, pas la
+        # chaine JSON qui vient d'etre ecrite.
+        return {**entry, "segments": segments or None}
 
     def search(self, query: str = "", *, limit: int = 100, offset: int = 0) -> list[dict]:
         query = query.strip()
@@ -116,14 +169,14 @@ class History:
                         " ORDER BY created_at DESC LIMIT ? OFFSET ?",
                         (f"%{query}%", limit, offset),
                     ).fetchall()
-        return [dict(r) for r in rows]
+        return [_row_to_entry(r) for r in rows]
 
     def get(self, entry_id: str) -> dict | None:
         with self._lock:
             row = self._conn.execute(
                 "SELECT * FROM entries WHERE id = ?", (entry_id,)
             ).fetchone()
-        return dict(row) if row else None
+        return _row_to_entry(row) if row else None
 
     def update_text(self, entry_id: str, text: str) -> None:
         with self._lock:

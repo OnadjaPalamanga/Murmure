@@ -15,9 +15,52 @@ import numpy as np
 
 from ..chunking import split_on_silence
 from ..cuda_setup import ensure_cuda_dlls
-from .base import SAMPLE_RATE, Transcript
+from .base import SAMPLE_RATE, Transcript, Word
 
 log = logging.getLogger(__name__)
+
+
+def words_from_tokens(
+    tokens: list[str] | None,
+    timestamps: list[float] | None,
+    *,
+    offset: float = 0.0,
+    duration: float | None = None,
+) -> list[Word]:
+    """Regroupe des jetons de sous-mots dates en mots.
+
+    onnx-asr date chaque JETON, pas chaque mot, et ne donne qu'un instant de
+    debut. Deux conversions sont donc necessaires :
+
+    * **Grouper.** Un jeton qui commence par une espace ouvre un mot, les autres
+      prolongent le precedent — c'est la convention du tokenizer NeMo, verifiee
+      sur la sortie reelle : `[' J', 'u', 'ju', ' e', 'go']` vaut « Juju ego ».
+    * **Fermer.** Faute de fin de jeton, un mot se termine ou le jeton suivant
+      commence ; le dernier se termine avec l'audio. L'approximation est sans
+      consequence : l'alignement des locuteurs se joue au recouvrement, pas a
+      la milliseconde.
+
+    `offset` decale le tout, les longs enregistrements etant decoupes en
+    morceaux dont chacun redate a partir de zero.
+    """
+    if not tokens or not timestamps:
+        return []
+
+    groups: list[list] = []
+    for index, (token, start) in enumerate(zip(tokens, timestamps, strict=False)):
+        following = timestamps[index + 1] if index + 1 < len(timestamps) else None
+        end = following if following is not None else (duration if duration is not None else start)
+        if token.startswith(" ") or not groups:
+            groups.append([start, end, token.strip()])
+        else:
+            groups[-1][1] = end
+            groups[-1][2] += token
+
+    return [
+        Word(offset + start, offset + max(end, start), text)
+        for start, end, text in groups
+        if text.strip()
+    ]
 
 
 class ParakeetEngine:
@@ -114,7 +157,9 @@ class ParakeetEngine:
         except Exception:  # noqa: BLE001 - un echec de warmup n'est pas fatal
             log.debug("Warmup Parakeet sans effet", exc_info=True)
 
-    def transcribe(self, audio: np.ndarray, language: str | None = None) -> Transcript:
+    def transcribe(
+        self, audio: np.ndarray, language: str | None = None, *, timestamps: bool = False
+    ) -> Transcript:
         if not self.is_loaded:
             self.load()
 
@@ -131,7 +176,34 @@ class ParakeetEngine:
             opts = {"language": source, "target_language": source}
 
         chunks = split_on_silence(audio, sample_rate=SAMPLE_RATE)
-        if len(chunks) == 1:
+        words: list[Word] = []
+
+        if timestamps:
+            # `with_timestamps()` rend des TimestampedResult au lieu de chaines.
+            model = self._model.with_timestamps()
+            if len(chunks) == 1:
+                results = [model.recognize(chunks[0], sample_rate=SAMPLE_RATE, **opts)]
+            else:
+                results = list(model.recognize(chunks, sample_rate=SAMPLE_RATE, **opts))
+
+            # Chaque morceau redate a partir de zero : on cumule sa duree pour
+            # replacer ses mots dans l'enregistrement complet. Sans ce decalage,
+            # tous les morceaux se superposeraient au debut et la diarisation
+            # attribuerait la fin de la reunion au premier locuteur.
+            offset = 0.0
+            for chunk, result in zip(chunks, results, strict=False):
+                seconds = len(chunk) / SAMPLE_RATE
+                words.extend(
+                    words_from_tokens(
+                        getattr(result, "tokens", None),
+                        getattr(result, "timestamps", None),
+                        offset=offset,
+                        duration=seconds,
+                    )
+                )
+                offset += seconds
+            text = " ".join(r.text.strip() for r in results if r.text and r.text.strip())
+        elif len(chunks) == 1:
             text = self._model.recognize(chunks[0], sample_rate=SAMPLE_RATE, **opts)
         else:
             # recognize() accepte une liste et traite le lot en une passe.
@@ -146,4 +218,5 @@ class ParakeetEngine:
             audio_seconds=len(audio) / SAMPLE_RATE,
             latency_ms=latency_ms,
             device=self.device,
+            words=words,
         )

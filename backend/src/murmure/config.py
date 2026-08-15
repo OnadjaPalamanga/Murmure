@@ -9,9 +9,11 @@ from __future__ import annotations
 import logging
 import threading
 import tomllib
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from typing import Any
 
+from .diarize import DEFAULT_THRESHOLD as DIARIZE_THRESHOLD
+from .models import default_model_id
 from .paths import CONFIG_FILE
 from .streaming import MAX_PHRASE_S, POLISH_MAX_S, PREVIEW_MS, SILENCE_MS
 
@@ -21,7 +23,10 @@ log = logging.getLogger(__name__)
 @dataclass
 class Settings:
     # --- moteur ---
-    model_id: str = "parakeet-tdt-0.6b-v3"
+    # Le defaut vient du catalogue (`is_default`), il n'est pas recopie ici :
+    # ecrire l'identifiant en dur a deja fait diverger l'installation neuve de
+    # ce que le catalogue et la documentation annoncaient comme recommande.
+    model_id: str = field(default_factory=default_model_id)
     prefer_gpu: bool = True
     preload_on_start: bool = True
     # "auto" = detection automatique. Forcer une langue pousse le decodeur a
@@ -65,6 +70,20 @@ class Settings:
     # Cadence de l'apercu grise pendant qu'on parle. 0 = pas d'apercu. Inactif
     # de toute facon sans carte graphique : voir `_transcribe_preview`.
     preview_ms: int = PREVIEW_MS
+
+    # --- diarisation (import de fichiers uniquement) ---
+    # Identifier qui parle demande d'avoir entendu toute la conversation : on ne
+    # peut pas nommer le deuxieme locuteur avant de l'avoir entendu une premiere
+    # fois. C'est pourquoi ca ne concerne que les fichiers, jamais la dictee.
+    # Desactive par defaut : ca ajoute un calcul et un telechargement de 35 Mo
+    # a qui ne transcrit que sa propre voix.
+    diarize_files: bool = False
+    # 0 = detection automatique. Un nombre >= 2 impose le compte, et c'est
+    # nettement plus fiable : sur l'enregistrement de reference, impose il est
+    # exact, tandis que l'automatique varie de 2 a 8 selon le seuil.
+    diarize_speakers: int = 0
+    # Seuil de regroupement des voix, quand le compte n'est pas impose.
+    diarize_threshold: float = DIARIZE_THRESHOLD
 
     # --- mise en forme ---
     trim_trailing_period: bool = False

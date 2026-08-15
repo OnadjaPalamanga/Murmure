@@ -213,6 +213,35 @@ function buildAudioPlayer(entry) {
   return player;
 }
 
+/// Une dictée diarisée s'affiche en dialogue : un tour de parole par ligne,
+/// avec le nom du locuteur. La couleur est dérivée de son numéro — deux
+/// personnes qui se répondent doivent se distinguer d'un coup d'œil, sans avoir
+/// à lire l'étiquette.
+function buildDialogue(segments) {
+  return segments
+    .filter((s) => s.text?.trim())
+    .map((s) => {
+      const turn = document.createElement("p");
+      turn.className = "turn";
+      // Modulo sur la palette : au-delà, les couleurs se répètent plutôt que
+      // de sortir de la charte. Au-delà de six locuteurs, l'étiquette porte
+      // seule l'information.
+      turn.dataset.speaker = s.speaker === null ? "unknown" : String(s.speaker % 6);
+
+      const who = document.createElement("span");
+      who.className = "turn-who";
+      who.textContent = s.speaker === null ? "Locuteur ?" : `Locuteur ${s.speaker + 1}`;
+      who.title = `${formatAudioTime(s.start)} → ${formatAudioTime(s.end)}`;
+
+      const said = document.createElement("span");
+      said.className = "turn-text";
+      said.textContent = s.text;
+
+      turn.append(who, said);
+      return turn;
+    });
+}
+
 function renderHistoryStats(stats = {}) {
   const count = Number(stats.count ?? 0);
   $("#history-count").textContent = `${count} dictée${count === 1 ? "" : "s"}`;
@@ -247,7 +276,12 @@ function renderHistory(entries) {
 
     const text = document.createElement("div");
     text.className = "entry-text";
-    text.textContent = entry.text;
+    if (entry.segments?.length) {
+      text.classList.add("dialogue");
+      text.append(...buildDialogue(entry.segments));
+    } else {
+      text.textContent = entry.text;
+    }
     text.addEventListener("click", () => card.classList.toggle("open"));
 
     const actions = document.createElement("div");
@@ -414,6 +448,8 @@ const FIELDS = [
   "phrase_silence_ms",
   "polish_mode",
   "preview_ms",
+  "diarize_files",
+  "diarize_speakers",
 ];
 
 const UNITS = {
@@ -434,6 +470,9 @@ function readField(name) {
   if (node.type === "checkbox") return node.checked;
   if (node.type === "range") return Number(node.value);
   if (name === "input_device") return node.value === "" ? null : Number(node.value);
+  // Le service attend un entier : « 0 » venu d'un <select> est une chaîne, et
+  // une chaîne passerait le test « >= 2 » côté Python sans jamais l'être.
+  if (name === "diarize_speakers") return Number(node.value);
   return node.value;
 }
 
@@ -473,6 +512,34 @@ function reflectDictationMode() {
   }
 }
 
+/// Le choix du nombre de personnes n'a de sens que si l'identification est
+/// active. Grisé plutôt que retiré : voir pourquoi c'est inactif vaut mieux que
+/// le voir disparaître.
+function reflectDiarization() {
+  const on = document.getElementById("set-diarize_files").checked;
+  const count = document.getElementById("set-diarize_speakers");
+  count.disabled = !on;
+  count.closest(".row").dataset.inactive = String(!on);
+
+  // Dire ce qui manque AVANT de lancer un fichier d'une heure, pas après.
+  const hint = document.getElementById("diarize-hint");
+  const info = snapshot?.diarization;
+  if (!info) return;
+  if (!info.available) {
+    hint.textContent =
+      "Indisponible : le composant de diarisation n'est pas installé. " +
+      "Relance l'installation du service (uv pip install -e .).";
+  } else if (!info.models_ready) {
+    hint.textContent =
+      `Sépare la transcription par personne qui parle. Premier usage : ` +
+      `${info.download_mb} Mo de modèles seront téléchargés.`;
+  } else {
+    hint.textContent =
+      "Sépare la transcription par personne qui parle. Pour les réunions et " +
+      "les entretiens ; inutile si tu es seul à parler.";
+  }
+}
+
 function bindSettings() {
   for (const name of FIELDS) {
     const node = document.getElementById(`set-${name}`);
@@ -488,6 +555,7 @@ function bindSettings() {
       bus.send("update_settings", { settings: { [name]: value } });
 
       if (name === "dictation_mode") reflectDictationMode();
+      if (name === "diarize_files") reflectDiarization();
 
       if (name === "hotkey") {
         invoke("set_hotkey", { accelerator: value })
@@ -636,6 +704,7 @@ bus.on("snapshot", (msg) => {
   renderDevices(msg.devices, msg.settings.input_device);
   for (const name of FIELDS) writeField(name, msg.settings[name]);
   reflectDictationMode();
+  reflectDiarization();
 
   $("#cta-hotkey").textContent = msg.settings.hotkey;
 
@@ -735,9 +804,12 @@ bus.on("file_progress", (msg) => {
 });
 
 bus.on("file_done", (msg) => {
+  const speakers = msg.speakers
+    ? ` · ${msg.speakers} locuteur${msg.speakers > 1 ? "s" : ""}`
+    : "";
   jobs.set(msg.name, {
     status: msg.ok ? "ok" : "ko",
-    message: msg.ok ? `${msg.latency_ms} ms · ${msg.realtime_factor}×` : msg.message,
+    message: msg.ok ? `${msg.latency_ms} ms · ${msg.realtime_factor}×${speakers}` : msg.message,
   });
   renderJobs();
   if (msg.ok) refreshHistory();

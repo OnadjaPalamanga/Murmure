@@ -1,476 +1,557 @@
 # Murmure
 
-Dictée locale instantanée. Un raccourci clavier, tu parles, le texte est là.
-Tout tourne sur ta machine : aucun appel réseau après le téléchargement des modèles.
+**Local dictation, instantly. Hold a key, speak, the text is there.**
 
-## Pourquoi c'est rapide
+Everything runs on your machine. Your audio and your transcriptions never leave
+the computer — there is no server, no account, and no upload.
 
-Ce n'est pas le modèle qui fait la latence, c'est l'architecture :
+[![CI](https://github.com/OnadjaPalamanga/Murmure/actions/workflows/ci.yml/badge.svg)](https://github.com/OnadjaPalamanga/Murmure/actions/workflows/ci.yml)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
+![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)
+![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
 
-- **Le modèle reste résident en VRAM.** Pas de rechargement à chaque dictée.
-- **Le micro reste ouvert 90 s** après une dictée. Ouvrir un périphérique WASAPI
-  coûte 50-150 ms ; en enchaînant, on ne le paie qu'une fois.
-- **Un pré-enregistrement de 400 ms** tourne en permanence : le début de mot
-  prononcé juste avant l'appui est déjà capturé.
-- **Découpage sur les silences** pour les longs enregistrements : l'attention du
-  Conformer est quadratique, dix passages de 45 s coûtent bien moins qu'un de 450 s.
+> **A note on language.** Murmure is a French dictation tool. Its interface,
+> its scripts and its source comments are in French; this README is in English
+> so the engineering is legible to a wider audience. The models themselves
+> handle 25 to 99 languages depending on which one you pick.
 
-Mesuré sur une RTX 2080, audio français de 474 s :
+---
 
-| Modèle | Temps | Facteur temps réel |
+## Why it feels instant
+
+The latency is not the model's doing — it is the architecture around it.
+
+| | What it buys |
+| --- | --- |
+| **The model stays resident in VRAM** | No reload between dictations |
+| **The microphone stays open for 90 s** | Opening a WASAPI device costs 50–150 ms; back-to-back dictations pay it once |
+| **A 400 ms pre-roll buffer runs continuously** | The start of a word spoken *just before* you press the key is already captured |
+| **Long audio is split on silences** | Conformer attention is quadratic — ten 45 s passes cost far less than one 450 s pass |
+
+Measured on an RTX 2080, 474 s of French audio:
+
+| Model | Time | Real-time factor |
 | --- | --- | --- |
-| Parakeet v3 | 9,3 s | 51× |
-| Whisper large-v3-turbo | 10,4 s | 46× |
-| Whisper FR distil dec16 | 20,3 s | 23× |
+| Parakeet v3 | 9.3 s | 51× |
+| Whisper large-v3-turbo | 10.4 s | 46× |
+| Whisper FR distil dec16 | 20.3 s | 23× |
 
-Sur une dictée de 15 s : **111 ms**, modèle chaud.
+On a 15-second dictation, with a warm model: **111 ms**.
 
-## Installation
+---
 
-Prérequis : [uv](https://docs.astral.sh/uv/), Node 18+, Rust, et les
-Build Tools MSVC (déjà présents si Visual Studio est installé).
+## Requirements
+
+- **Windows 10 or 11.** Cursor injection uses `SendInput`, and the audio path
+  targets WASAPI. Nothing else is supported today.
+- [**uv**](https://docs.astral.sh/uv/), **Node 18+**, **Rust**, and the **MSVC
+  Build Tools** (already present if Visual Studio is installed).
+- **An NVIDIA GPU is optional.** Without one, use the *no graphics card* tier —
+  see [Models](#models).
+- Roughly **2.5 GB** for the Python environment (the CUDA runtime dominates),
+  plus **0.6–3 GB** per model you download.
+
+## Install
 
 ```powershell
 .\install.ps1
 ```
 
-Le script crée l'environnement Python s'il manque, compile l'application, et
-l'ajoute au démarrage de la session. Aucun privilège administrateur requis.
+The script checks your toolchain up front, creates the Python environment if it
+is missing, compiles the application, and registers it in the Start menu and at
+session startup. **No administrator privileges are required** — everything
+happens inside your user profile.
 
 ```powershell
-.\install.ps1 -Uninstall   # retire du démarrage, ne touche pas aux données
-.\run.ps1                  # mode développement, rechargement à chaud
+.\install.ps1 -Uninstall   # removes the shortcuts, leaves your data untouched
+.\run.ps1                  # development mode, with frontend hot reload
 ```
 
-**Il n'y a qu'une seule chose à lancer** : l'application démarre elle-même le
-service Python si besoin, et l'arrête quand tu quittes par le menu système.
+**There is only one thing to launch.** The application starts the Python service
+itself if needed, and stops it when you quit from the tray menu.
 
-Le premier démarrage télécharge le modèle par défaut (~600 Mo) dans `models/hub`,
-avec la progression affichée — pas d'écran figé sans explication.
+The project folder *is* the installation: shortcuts point at it, nothing is
+copied elsewhere. That is deliberate — the Python environment weighs 2.5 GB and
+the models up to 14 GB. An installer duplicating them would create a second
+Murmure with its own version, and nothing would stop you launching the wrong one.
 
-## Utilisation
+The first launch downloads the default model (~600 MB) into `models/hub`, with
+progress shown — no frozen screen without explanation.
 
-`Ctrl+Space` maintenu — parle — relâche. Le texte est copié dans le
-presse-papier et affiché pour relecture. `Échap` annule.
+## Use
 
-> `Ctrl+Space` est aussi l'autocomplétion de la plupart des IDE, et un raccourci
-> global le confisque à l'échelle du système. Si ça gêne, change-le dans Réglages ;
-> un raccourci déjà pris par une autre application est signalé au lieu d'échouer
-> en silence.
+Hold **`Ctrl+Space`** — speak — release. The text is copied to the clipboard and
+shown for review. **`Esc`** cancels.
 
-Trois autres façons de déclencher : le bouton **Dicter** de la fenêtre principale,
-l'entrée **Dicter** du menu de la zone de notification, ou l'onglet **Fichiers**
-pour transcrire de l'audio existant.
+> `Ctrl+Space` is also the autocomplete binding in most IDEs, and a global
+> shortcut takes it system-wide. Change it in Settings if that bothers you; a
+> shortcut already claimed by another application is reported rather than
+> failing silently.
 
-Fermer la fenêtre principale ne quitte pas : le raccourci reste actif.
+Three other ways to trigger it: the **Dicter** button in the main window, the
+**Dicter** entry in the tray menu, or the **Fichiers** tab to transcribe
+existing audio.
 
-## Dictée continue
+Closing the main window does not quit — the shortcut stays live.
 
-Réglages ▸ *Mode de dictée* ▸ **Continu**. Le texte tombe alors phrase par
-phrase pendant que tu parles, au lieu d'arriver d'un bloc à la fin. Avec
-**Écrire au curseur**, il est frappé dans l'application au premier plan — comme
-la dictée de Windows.
+---
 
-Trois étages travaillent en même temps, du plus rapide au plus juste :
+## Continuous dictation
 
-| | Quand | Où ça va |
+Settings ▸ *Mode de dictée* ▸ **Continu**. Text now lands sentence by sentence
+as you speak, instead of arriving in one block at the end. With **Écrire au
+curseur**, it is typed into the foreground application, like Windows dictation.
+
+Three stages work in parallel, fastest to most accurate:
+
+| | When | Where it goes |
 | --- | --- | --- |
-| **Aperçu** | toutes les 500 ms, sans attendre la fin de la phrase | affiché en grisé, rien d'autre |
-| **Phrase** | à chaque frontière de phrase | affiché en clair |
-| **Fenêtre polie** | quand tu marques une vraie pause | affiché, **et frappé au curseur** |
+| **Preview** | every 500 ms, without waiting for the sentence to end | shown greyed out, nothing else |
+| **Sentence** | at each phrase boundary | shown in plain text |
+| **Polished window** | when you make a real pause | shown, **and typed at the cursor** |
 
-Le découpage se fait sur les **frontières de phrase**, jamais sur une horloge.
-Chaque morceau envoyé au moteur est un groupe de souffle complet, borné par du
-silence : le modèle travaille dans les mêmes conditions qu'en différé. Sur une
-dictée française de 58 s, le texte est celui de la passe unique, y compris là où
-ça compte — « extrêmement riche, ambitieuse et intellectuellement stimulante »
-sort entier.
+Splitting happens on **phrase boundaries**, never on a clock. Every chunk sent
+to the engine is a complete breath group bounded by silence, so the model works
+under the same conditions as in batch mode.
 
-Le prix à payer est réel : **plus de relecture**. En différé le texte s'affiche
-et s'édite avant que tu t'en serves ; en continu il est déjà dans ton document.
-C'est pourquoi le différé reste le défaut.
+The cost is real: **no more review pass**. In batch mode the text is displayed
+and editable before you use it; in continuous mode it is already in your
+document. That is why batch remains the default.
 
-### Le polissage : pourquoi ce n'est pas un modèle de plus
+### Polishing: why this is not another model
 
-Une phrase découpée reste une phrase **amputée de son contexte**. Le modèle la
-ferme donc par un point et remet une majuscule à la suivante — et c'est là, pas
-sur les mots, que la dictée continue se voyait :
+A split sentence is a sentence **amputated of its context**. The model therefore
+closes it with a period and capitalises the next one — and that, not the words,
+is where continuous dictation used to show:
 
 > …je vais essayer de faire une comparaison. **Ou, à certaines époques,
 > j'explique. Cette personne vivait.** Qu'est-ce que certaines sociétés
 > construisaient ?
 
-Quand la parole retombe pour de bon, les dernières phrases **repartent au moteur
-d'un seul bloc**. Il voit alors la phrase entière et rend ce qu'il rend en
-différé. Même extrait, même audio, même modèle :
+When speech drops for good, the last sentences **go back to the engine as one
+block**. It then sees the whole sentence and returns what it returns in batch
+mode. Same excerpt, same audio, same model:
 
 > …je vais essayer de faire une comparaison **où, à certaines époques,
 > j'explique certains endroits, comment est-ce que certaines personnes
 > vivaient,** qu'est-ce que certaines sociétés construisaient…
 
-Ce n'est **pas un modèle de langue** qui repasse derrière. Un LLM reformulerait,
-et aucune consigne ne l'en empêche de façon sûre. Ici la sortie reste de la
-reconnaissance vocale : elle ne peut pas dire autre chose que ce qui a été
-prononcé. Le re-décodage récupère même des mots que les phrases isolées avaient
-perdus — « la condition » redevient « la condition des noirs ».
+This is **not a language model** running behind. An LLM would rephrase, and no
+instruction reliably prevents it. Here the output stays speech recognition: it
+cannot say anything other than what was spoken. Re-decoding even recovers words
+the isolated sentences had lost — "la condition" becomes "la condition des
+noirs" again.
 
-Trois garde-fous, dans `polish.py` :
+Three safeguards, in [`polish.py`](backend/src/murmure/polish.py):
 
-- **Une fenêtre d'une seule phrase n'est pas re-décodée.** Ses échantillons sont
-  exactement ceux déjà transcrits : le calcul rendrait le même texte au même
-  prix. C'est le cas courant chez qui marque de vraies pauses, et il est gratuit.
-- **Un polissage qui déraille est refusé.** Sortie vide, ou boucle de répétition :
-  si le nombre de mots sort des bornes 0,6×–1,6× du texte brut, c'est le texte
-  brut qui reste. On ne remplace du texte correct que par du texte plausible.
-- **Les coutures sont dédoublonnées.** Deux fenêtres consécutives partagent les
-  marges d'attaque et de fin de leurs phrases ; le chevauchement est retiré.
+- **A single-sentence window is not re-decoded.** Its samples are exactly those
+  already transcribed: the computation would return the same text at the same
+  price. This is the common case for anyone who pauses properly, and it is free.
+- **A polish pass that derails is rejected.** Empty output, or a repetition
+  loop: if the word count falls outside 0.6×–1.6× of the raw text, the raw text
+  stands. Correct text is only ever replaced by plausible text.
+- **Seams are de-duplicated.** Consecutive windows share the lead-in and tail
+  margins of their sentences; the overlap is stripped.
 
-Le seuil de « vraie pause » est à **1,6 s**, et c'est mesuré. Sur trois minutes
-de dictée française réelle, les pauses entre phrases se répartissent presque
-toutes entre 0,7 et 1,6 s : le seuil coupe juste au-dessus du gros du peloton et
-laisse 2 à 4 phrases par fenêtre. Monter à 2,5 s en grouperait 5 à 6 — mais une
-fenêtre de 5 phrases dépasse le plafond de 20 s, et c'est alors le plafond qui
-tranche, à un endroit quelconque au lieu d'un vrai arrêt. **Les deux valeurs
-vont ensemble** ; changer l'une sans l'autre n'apporte rien.
+The "real pause" threshold is **1.6 s**, and it is measured. Across three
+minutes of real French dictation, pauses between sentences fall almost entirely
+between 0.7 and 1.6 s: the threshold cuts just above the bulk of them and leaves
+2–4 sentences per window. Raising it to 2.5 s would group 5–6 — but a
+five-sentence window exceeds the 20 s ceiling, and then it is the ceiling that
+decides, at an arbitrary point instead of a real stop. **The two values go
+together**; changing one without the other achieves nothing.
 
-Sur 240 s de dictée continue : 40 phrases, 22 fenêtres dont 13 re-décodées,
-toutes entre 7,5 et 19,1 s. Le surcoût GPU est de l'ordre de 3 s.
+Over 240 s of continuous dictation: 40 sentences, 22 windows of which 13 were
+re-decoded, all between 7.5 and 19.1 s. The GPU overhead is around 3 s.
 
-> **Le texte n'est frappé au curseur qu'une fois poli.** C'est délibéré : réviser
-> du texte déjà tapé demanderait d'envoyer des retours arrière dans le document,
-> et si tu as cliqué ailleurs entre-temps ils mangeraient ce que tu venais
-> d'écrire. L'overlay sert de vue en direct ; le document ne reçoit que du
-> définitif. Le décalage vaut une pause.
+> **Text is only typed at the cursor once polished.** This is deliberate:
+> revising already-typed text would mean sending backspaces into the document,
+> and if you clicked elsewhere in the meantime they would eat what you had just
+> written. The overlay is the live view; the document only receives final text.
 
-### L'aperçu
+### The preview
 
-Une phrase ne tombe qu'une fois finie — jusqu'à plusieurs secondes de silence
-apparent. L'aperçu décode donc la phrase **en cours** toutes les 500 ms sans la
-fermer, et l'affiche en grisé. Il n'est jamais frappé au curseur ni enregistré :
-c'est un témoin, pas du texte.
+A sentence only lands once finished — up to several seconds of apparent
+silence. The preview therefore decodes the sentence **in progress** every 500 ms
+without closing it, and displays it greyed out. It is never typed at the cursor
+nor recorded: it is a witness, not text.
 
-C'est le seul étage qui a le droit de ne rien faire. S'il ne peut pas prendre le
-moteur immédiatement, **il saute son tour** : un affichage provisoire ne doit
-jamais retarder une phrase. Sa latence n'entre pas non plus dans celle annoncée,
-puisqu'il ne produit aucun mot livré.
+It is the only stage allowed to do nothing. If it cannot take the engine
+immediately, **it skips its turn**: a provisional display must never delay a
+sentence. Its latency does not count toward the reported figure either, since it
+produces no delivered words.
 
-Sans carte graphique il reste inactif, quel que soit le réglage : au cran le plus
-lent, huit secondes d'audio coûtent plusieurs secondes de calcul. Il prendrait à
-la dictée le temps qu'il prétend lui faire gagner.
+Without a graphics card it stays inactive whatever the setting: on the slowest
+tier, eight seconds of audio costs several seconds of compute. It would take
+from the dictation exactly the time it claims to save.
 
-> L'intervalle réglé est un temps de **repos entre deux décodages**, pas une
-> période : à 500 ms sur `large-v3-turbo`, l'aperçu se rafraîchit en pratique
-> toutes les 700 à 800 ms. C'est ce qui l'empêche de saturer le GPU quand le
-> modèle ralentit.
+Two rules held by the code rather than by documentation:
 
-Deux règles tenues par le code plutôt que par la documentation :
+- **A hesitation is not an end of sentence.** Below `MIN_COMMIT_S` of
+  accumulated speech, plain silence validates nothing — a real stop is required.
+  Without this guard, "c'est une vision du contenu / extrêmement riche" left in
+  two pieces and the isolated fragment came back as "Extrême Maris".
+- **One language detection per dictation**, pinned on the first substantial
+  sentence and only if confidence exceeds 0.85. Detecting sentence by sentence
+  derails the small models: on French dictation, `small` returned "Уплиток,
+  мюрмюр" and then Romanian. This is not forcing the language — it is restoring
+  the granularity of batch mode.
 
-- **Une hésitation n'est pas une fin de phrase.** En dessous de `MIN_COMMIT_S`
-  de parole accumulée, un simple silence ne valide rien : on attend un vrai
-  arrêt. Sans ce garde-fou, « c'est une vision du contenu / extrêmement riche »
-  partait en deux morceaux et le fragment isolé ressortait « Extrême Maris ».
-- **Une seule détection de langue par dictée**, figée sur la première phrase
-  conséquente et seulement si la confiance dépasse 0,85. Détecter phrase par
-  phrase fait dérailler les petits modèles : sur une dictée française, `small`
-  rendait « Уплиток, мюрмюр » puis du roumain. Ce n'est pas forcer la langue,
-  c'est retrouver la granularité du mode différé. Parakeet et Canary ne
-  rapportent jamais de langue détectée : rien ne se fige pour eux.
+### Without a graphics card
 
-### Ce qui change par rapport au différé
+Continuous mode is comfortable there speed-wise — `whisper-small-cpu` holds 16×
+real time on 4 threads. It is **language detection** that gives out, not the
+compute:
 
-| | Différé | Continu |
+| Model | Detection on 1st sentence | Result |
 | --- | --- | --- |
-| Le texte arrive | d'un bloc, à la fin | phrase par phrase |
-| Au curseur | à la fin | à chaque vraie pause |
-| Relecture avant usage | oui | non |
-| Raccourci | maintenir ou bascule | bascule, toujours |
-| Cran *sans carte graphique* | tous les modèles | `small` seulement, en auto |
+| Whisper small | `fr` at 0.98 | correct French |
+| Whisper base | `ro` at 0.73 | Romanian, then Russian |
 
-Le raccourci passe en bascule de force, et ce n'est pas un détail : en mode
-maintenu, `Ctrl` reste physiquement enfoncé pendant qu'on frappe le texte, et
-l'application cible reçoit des `Ctrl+lettre` au lieu des caractères.
+On `base` and `tiny`, **force the language in Settings** when using continuous
+dictation.
 
-### Sur le cran sans carte graphique
+---
 
-Le mode continu y est confortable côté vitesse — `whisper-small-cpu` tient 16×
-le temps réel à 4 fils, très au-dessus du nécessaire. C'est la **détection de
-langue** qui lâche, pas le calcul :
+## Models
 
-| Modèle | Détection sur la 1re phrase | Résultat |
+Eight models, arranged in the interface as four notches on a speed/quality
+slider. Optimal settings are wired in per model.
+
+| Tier | Model | For what |
 | --- | --- | --- |
-| Whisper small | `fr` à 0,98 | français correct |
-| Whisper base | `ro` à 0,73 | roumain, puis russe |
+| **No graphics card** | Whisper tiny / base / small (CPU) | Machines without a GPU |
+| **Fast** | Parakeet v3 | Pure French or pure English, immediate response |
+| **Balanced** | Whisper large-v3-turbo *(default)* | Everyday dictation |
+| **Balanced** | Whisper FR distil dec16 | Non-metropolitan accents |
+| **Quality** | Whisper large-v3 | What actually matters |
+| **Quality** | Canary 1B v2 | Most accurate, slowest |
 
-Sur `base` et `tiny`, **force la langue dans Réglages** en dictée continue. Le
-même extrait passe alors de « Si am trebuit testi para kits » à « Et on prend
-des tests par acquis » — inexact, mais du français.
+**`whisper-large-v3-turbo` is the default** because it is both faster and more
+accurate than Parakeet on French mixed with English. Parakeet keeps its place in
+the *Fast* tier for its *transducer* architecture, which can emit empty output
+instead of forcing a token: it does not invent text over silence, unlike Whisper.
 
-> Garde-fou mesuré au passage : sur une phrase courte, `base` a rendu l'amorce
-> de dictée mot pour mot (« Voici une note dictée, ponctuée normalement… ») au
-> lieu de transcrire. C'est la régurgitation déjà connue sur `tiny`. Une phrase
-> qui n'est qu'un extrait de l'amorce est désormais jetée, faute de quoi elle
-> serait frappée telle quelle dans le document.
+### Language and anglicisms
 
-### Niveau d'enregistrement
+The language setting is **Automatic** by default, and that is deliberate:
+forcing "French" pushes the decoder to phonetically transcribe English words
+that were actually spoken ("meeting" → "mitine"). The prompt given to Whisper
+deliberately contains anglicisms written in English, precisely so it leaves them
+as they are.
 
-Les phrases sont remontées à un niveau de parole normal avant d'atteindre le
-moteur, et le détecteur de parole reçoit son propre gain. Ce n'est pas de la
-coquetterie : sur un enregistrement à 0,022 de pic — un micro faible — Silero
-hachait 6,5 s de parole en sept bribes, et Whisper, privé de contexte, inventait
-« Voici une autre vidéo » là où il était dit « voir ce que ça donne ». Normalisé,
-il rend « Voilà, c'est que ça donne ».
+But "automatic detection" does not mean "faithful", and the distortion runs both
+ways. On French dictation containing a genuine "Wow", measured sentence by
+sentence:
 
-Le moteur reçoit toujours l'audio d'origine en mode différé : là, les vingt
-secondes de contexte suffisent à rattraper le niveau.
-
-## Transcrire des fichiers existants
-
-Onglet **Fichiers** : glisse-dépose ou parcours. Audio et vidéo, n'importe quel
-format — pour une vidéo, seule la piste son est extraite. Les formats courants
-passent par `soundfile` ; le reste par `ffmpeg` (fourni dans `bin/`).
-
-## Langue et anglicismes
-
-Le réglage de langue est sur **Automatique** par défaut, et c'est délibéré :
-forcer « français » pousse le décodeur à transcrire phonétiquement les mots
-anglais réellement prononcés (« meeting » → « mitine »). L'amorce donnée à
-Whisper contient d'ailleurs des anglicismes écrits en anglais, précisément pour
-qu'il les laisse tels quels.
-
-Mais « détection automatique » ne veut pas dire « fidèle », et la déformation va
-dans les deux sens. Sur une dictée française contenant un vrai « Wow », mesuré
-phrase par phrase :
-
-| Ce qui a été dit | « c'est quand même super rapide » | « Wow » |
+| What was said | "c'est quand même super rapide" | "Wow" |
 | --- | --- | --- |
-| Parakeet v3 | « **it's quite** super rapide » | Wow |
-| Whisper large-v3-turbo | ✓ | « Waouh » |
-| Whisper FR distil | ✓ | « Waouh » |
+| Parakeet v3 | "**it's quite** super rapide" | Wow |
+| Whisper large-v3-turbo | ✓ | "Waouh" |
+| Whisper FR distil | ✓ | "Waouh" |
 | Whisper large-v3 | ✓ | ✓ |
 | Canary 1B v2 | ✓ | ✓ |
 
-Parakeet ne préserve pas les anglicismes : sa détection bascule **mot à mot** et
-remplace des mots français par leurs quasi-homophones anglais (« et » → « and »,
-« riche » → « rich », « Tu touches à la croisée de plusieurs » → « You touch at
-the croisée of other »). Les deux modèles haut de gamme sont les seuls à faire
-les deux choses à la fois : garder l'anglais réellement prononcé **et** ne pas
-angliciser le français.
+Parakeet does not preserve anglicisms: its detection switches **word by word**
+and replaces French words with near-homophone English ones ("et" → "and",
+"riche" → "rich"). The two high-end models are the only ones doing both things
+at once: keeping the English actually spoken **and** not anglicising the French.
 
-Contrepartie : sur un clip très court sans mots réels, la détection automatique
-peut se tromper de langue. Si ça arrive, force la langue dans Réglages.
+### Adding your own model
 
-## Modèles
+Drop a folder into `models/`:
 
-Huit modèles, rangés dans l'interface en quatre crans d'un curseur
-vitesse/qualité. Les réglages optimaux sont câblés par modèle.
+- a `model.bin` → detected as CTranslate2 (Whisper)
+- `.onnx` files → detected as onnx-asr (Parakeet, Canary…)
 
-| Cran | Modèle | Pour quoi |
-| --- | --- | --- |
-| **Sans carte graphique** | Whisper tiny / base / small (CPU) | Machine sans GPU |
-| **Rapide** | Parakeet v3 | Français pur ou anglais pur, réponse immédiate |
-| **Équilibré** | Whisper large-v3-turbo *(défaut)* | La dictée de tous les jours |
-| **Équilibré** | Whisper FR distil dec16 | Accents non hexagonaux |
-| **Qualité** | Whisper large-v3 | Ce qui compte vraiment |
-| **Qualité** | Canary 1B v2 | Le plus exact, le plus lent |
-
-**`whisper-large-v3-turbo` est le défaut** parce qu'il est à la fois plus rapide
-et plus juste que Parakeet sur du français mêlé d'anglais — voir le tableau de
-la section précédente. Parakeet garde sa place au cran *Rapide* pour son
-architecture *transducer*, qui peut émettre une sortie vide au lieu de forcer un
-token : il n'invente pas de texte sur les silences, contrairement à Whisper.
-
-> À ne pas faire : passer `language="fr"` à Parakeet. Le texte est rigoureusement
-> identique et le temps de calcul est multiplié par 7,5. Vérifié, pas supposé.
-
-### Sans carte graphique
-
-Le cran *Sans carte graphique* existe pour que Murmure reste utilisable sur une
-machine ordinaire. Mesuré sur un extrait de 25 s de parole française mêlée
-d'anglais, **processeur seul, bridé à 4 fils** :
-
-| Modèle | Temps | Facteur temps réel | Ce qu'il donne |
-| --- | --- | --- | --- |
-| Whisper tiny | 0,9 s | 28× | Compréhensible, beaucoup d'erreurs de mots |
-| Whisper base | 2,0 s | 12× | Phrases correctes, se trompe sur les noms propres |
-| Whisper small | 4,8 s | 5× | Le meilleur des trois sur CPU |
-
-Les trois gardent les anglicismes réellement prononcés.
-
-Deux décisions à ne pas défaire dans ce cran :
-
-- **`compute_type: "int8"`, jamais `int8_float16`.** Ce dernier est un type GPU ;
-  sur processeur CTranslate2 le refuse et retombe en silence sur autre chose.
-- **`cpu_threads` borné à 4.** Une dictée ne doit pas confisquer la machine. Et
-  une charge AVX sur tous les cœurs tire un pic de consommation que toutes les
-  alimentations n'encaissent pas — vérifié à nos dépens.
-
-> À ne pas faire : donner l'amorce de dictée à `tiny`. Le modèle est trop petit
-> pour la suivre : il la recopie puis part en boucle (« la question de la
-> question de la question… »). D'où `initial_prompt: None` sur cette seule
-> entrée. Avec l'amorce il produisait du texte inutilisable **et** était treize
-> fois plus lent, la boucle multipliant les étapes de décodage.
-
-Deux pistes évaluées puis **écartées**, pour ne pas les réexplorer :
-
-- `whisper-large-v3-french-distil-dec2` : distiller le décodeur ne sert presque
-  à rien sur processeur, où c'est l'encodeur qui coûte cher — et celui-ci reste
-  l'encodeur large-v3 entier. 2,1× le temps réel pour une sortie sans
-  ponctuation ni majuscules.
-- `canary-180m-flash` : très rapide (12×) mais il **perd le début** de
-  l'enregistrement, de façon reproductible. Rédhibitoire pour de la dictée.
-
-> Piège Canary : contrairement à Parakeet, il n'a **aucun jeton de détection
-> automatique**. Son prompt est câblé sur `<|en|>`/`<|en|>` aux positions 4 et 5
-> (voir `onnx_asr/models/nemo.py`), si bien que sans langue source explicite il
-> **traduit** au lieu de transcrire — du français dicté ressort en anglais. C'est
-> pourquoi c'est le seul modèle du catalogue à porter `needs_language`, et
-> pourquoi on lui passe `target_language` égal à `language` : c'est cette
-> égalité, et rien d'autre, qui distingue transcrire de traduire.
-
-> À ne pas faire non plus : pré-télécharger un dépôt entier avec
-> `snapshot_download` pour afficher un pourcentage. onnx-asr et faster-whisper ne
-> prennent qu'une variante de quantification sur les cinq publiées — le dépôt
-> Parakeet pèse 3 Go là où 600 Mo suffisent. La progression est donc mesurée en
-> observant le cache grossir, et la barre reste indéterminée plutôt que
-> d'afficher un pourcentage faux.
-
-### Ajouter ton propre modèle
-
-Dépose un dossier dans `models/` :
-
-- un `model.bin` → détecté comme CTranslate2 (Whisper)
-- des `.onnx` → détecté comme onnx-asr (Parakeet, Canary…)
-
-Un `murmure.json` optionnel à côté permet de nommer le modèle et de surcharger
-ses options :
+An optional `murmure.json` alongside lets you name the model and override its
+options:
 
 ```json
 {
-  "label": "Mon modèle affiné",
+  "label": "My fine-tuned model",
   "languages": "français",
   "options": { "beam_size": 2, "initial_prompt": "Notes techniques ponctuées." }
 }
 ```
 
+### Transcribing existing files
+
+**Fichiers** tab: drag and drop, or browse. Audio and video, any format — for a
+video, only the sound track is extracted. Common formats go through `soundfile`;
+the rest through `ffmpeg`.
+
+> `ffmpeg` is **not bundled** in this repository (it weighs ~80 MB and carries
+> its own licence). Put an `ffmpeg.exe` in `bin/`, or install it in your `PATH`.
+> Without it, common audio formats still work; video files do not.
+
+---
+
+## Speaker identification
+
+Tick **Identifier les locuteurs** in the *Fichiers* tab and the transcript comes
+back as a dialogue instead of one undifferentiated block:
+
+```
+Locuteur 1 : Là je suis en train de tester la reconnaissance.
+Locuteur 2 : Et ça donne quoi sur une réunion à quatre ?
+Locuteur 1 : Chaque prise de parole est séparée.
+```
+
+**Files only** — never live dictation. Grouping voices means deciding that the
+person speaking now is the one who spoke two minutes ago, and you cannot make
+that call before hearing them a second time. That is not a limitation to lift
+later; it is what diarization *is*.
+
+It costs nothing until you use it: the two models (~35 MB) are downloaded on
+first use, and the toggle is off by default.
+
+### How it works
+
+Two models run in sequence, and neither is a language model:
+
+1. a **segmentation** model (pyannote 3.0) cuts the audio into speech turns;
+2. a **voice-embedding** model reduces each turn to a vector, and vectors that
+   sit close together are grouped — one group, one speaker.
+
+The transcript is then aligned onto those turns **by maximum overlap**: a word
+belongs to whoever it shares the most time with, not to whoever was speaking
+when it started. On overlapping turns the start still belongs to the person
+finishing their sentence, while the word belongs to the next one.
+
+> **Why not `pyannote.audio`**, which is the reference implementation? It
+> requires PyTorch — 2.5 GB, doubling the whole installation — plus gated models
+> needing a Hugging Face token. Murmure was deliberately built without torch
+> (that is the whole reason for onnx-asr). [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)
+> runs the *same* pyannote segmentation model, exported to ONNX, on the
+> inference runtime that is already there.
+
+### Tell it how many people there are
+
+The **Nombre de personnes** setting is the one that matters. Measured on a
+four-speaker reference recording, varying only the clustering threshold:
+
+| Embedding model | 0.5 | 0.6 | 0.7 | 0.8 | 0.9 |
+| --- | --- | --- | --- | --- | --- |
+| WeSpeaker CAM++ *(used here)* | 5 | **4 ✓** | 3 | 2 | 2 |
+| 3D-Speaker (zh-cn) | 7 | 7 | 5 | 5 | **4 ✓** |
+
+Automatic detection lands correctly at the default threshold on that recording,
+but the right threshold depends on the embedding model *and* on the audio. When
+you know how many people are in the room, saying so removes the guesswork.
+
+CAM++ is the default because it is trained on VoxCeleb — multilingual interview
+audio, which generalises to French — and because it is twice as fast as the
+alternatives (13× real time against 6×, CPU only).
+
+### What to expect
+
+Diarization is best-effort, and honest about it:
+
+- It runs on **CPU at 6–13× real time**, so a one-hour recording costs a few
+  minutes on top of transcription.
+- Speaker turns are found accurately: on a constructed two-voice file with known
+  boundaries at 12.6 s and 18.7 s, the detected changes landed at 12.4 s and
+  19.3 s, and the first voice was correctly given **the same label** when it came
+  back.
+- Auto-detection sometimes **splits one person into two** when their voice
+  changes register. Giving the speaker count fixes it.
+- **It never costs you a transcription.** Every failure path — missing
+  dependency, interrupted download, unreadable model, an engine that cannot
+  date its words — falls back to the plain continuous transcript, which has
+  already been computed. Losing an hour of transcription because speaker
+  labelling failed would be out of all proportion.
+
+---
+
 ## Architecture
 
 ```
-backend/                 service Python (le modèle vit ici)
+backend/                 Python service (the model lives here)
   src/murmure/
-    audio.py             capture micro, tampon circulaire, pré-enregistrement
-    engines/             moteurs interchangeables (Parakeet ONNX, faster-whisper)
-    chunking.py          découpage sur les silences
-    streaming.py         dictée continue : segmentation VAD, aperçu, fenêtres
-    polish.py            garde-fous du re-décodage : coutures, quand refuser
-    media.py             lecture de tout fichier audio/vidéo (soundfile, ffmpeg)
-    download.py          progression de téléchargement par observation du cache
-    service.py           orchestration micro → moteur → historique
-    server.py            transport WebSocket (aucune logique métier)
-    history.py           SQLite + recherche plein texte FTS5
-bin/ffmpeg.exe           décodage des formats que soundfile ne gère pas
-frontend/                application Tauri 2
-  src/                   overlay + fenêtre principale (HTML/CSS/JS)
-  src-tauri/src/lib.rs   raccourci global, zone de notification, service Python
-  src-tauri/src/inject.rs frappe au curseur (SendInput Unicode)
+    audio.py             microphone capture, ring buffer, pre-roll
+    engines/             interchangeable engines (Parakeet ONNX, faster-whisper)
+    chunking.py          silence-based splitting
+    streaming.py         continuous dictation: VAD segmentation, preview, windows
+    polish.py            re-decode safeguards: seams, when to refuse
+    diarize.py           speaker diarization (sherpa-onnx, files only)
+    align.py             maps words onto speaker turns by maximum overlap
+    media.py             reads any audio/video file (soundfile, ffmpeg)
+    download.py          download progress by watching the cache grow
+    service.py           orchestration: mic → engine → history
+    server.py            WebSocket transport (no business logic)
+    history.py           SQLite + FTS5 full-text search
+  tests/                 pure-logic tests, no model required
+frontend/                Tauri 2 application
+  src/                   overlay + main window (HTML/CSS/JS)
+  src-tauri/src/lib.rs   global shortcut, tray icon, Python service
+  src-tauri/src/inject.rs cursor typing (SendInput Unicode)
 ```
 
-Le frontend ne parle au backend que par WebSocket sur `127.0.0.1:8756`.
-Les deux se relancent indépendamment.
+The frontend talks to the backend only over WebSocket on `127.0.0.1:8756`. The
+two restart independently.
 
-### Un seul binaire
+### One binary
 
-`target/release/murmure.exe` est le **seul exécutable lançable**, et c'est vers
-lui que pointe le raccourci posé par `install.ps1`. Deux choses ont été
-désactivées pour que ça reste vrai :
+`target/release/murmure.exe` is the **only launchable executable**, and it is
+what `install.ps1` points its shortcuts at. Two things are disabled to keep that
+true:
 
-- **Aucun installeur n'est produit.** `bundle.active` est à `false` dans
-  `tauri.conf.json`. Un `Murmure_x.y.z_x64-setup.exe` posé à côté installerait
-  une seconde copie, avec sa propre version — et rien n'empêche de
-  double-cliquer la mauvaise. À réactiver le jour d'une vraie distribution.
-- **`target/debug/` n'est pas un endroit d'où lancer l'application.** `run.ps1`
-  y compile pour le développement, mais ce binaire vieillit dès qu'on rebâtit le
-  release, et il est tout aussi double-cliquable.
+- **No installer is produced.** `bundle.active` is `false` in
+  `tauri.conf.json`. A `Murmure_x.y.z_x64-setup.exe` sitting next to it would
+  install a second copy with its own version, and nothing would stop you
+  double-clicking the wrong one.
+- **`target/debug/` is not a place to launch from.** `run.ps1` compiles there
+  for development, but that binary goes stale as soon as release is rebuilt, and
+  it is just as double-clickable.
 
-`install.ps1` recompile dès que le binaire est **plus vieux qu'une source**, et
-non plus sur sa seule existence : un binaire périmé se lance aussi bien qu'un
-neuf, et rien dans l'interface ne dit son âge.
+`install.ps1` recompiles as soon as the binary is **older than a source file**,
+not merely when it is absent: a stale binary launches just as well as a fresh
+one, and nothing in the interface reveals its age.
 
-> Symptôme vécu : un `release` et un `debug` compilés le même jour, puis quatre
-> jours de travail. Les deux se lançaient, les deux affichaient l'interface
-> d'avant — sans le moindre message pour dire laquelle était périmée.
+### One instance
 
-### Une seule instance
+Double-clicking the executable a second time does not start a second Murmure:
+the `single-instance` plugin is registered **before all others**, and the second
+instance dies before registering anything. It first asks the running one to show
+its window — a second launch means "show me Murmure", not "start another".
 
-Double-cliquer l'exécutable une seconde fois ne lance pas un second Murmure :
-le plugin `single-instance` est enregistré **avant tous les autres**, et la
-seconde instance meurt avant d'avoir rien enregistré. Elle demande d'abord à
-celle en place d'ouvrir sa fenêtre — un second lancement veut dire « montre-moi
-Murmure », pas « démarre-en un autre ».
+Registration order is not a style detail. The real risk is not two windows, it
+is **two applications fighting over the same global shortcut**: the second takes
+it from the first, which goes silent without reporting anything.
 
-L'ordre d'enregistrement n'est pas un détail de style. Le vrai risque n'est pas
-d'avoir deux fenêtres, c'est que **deux applications se disputent le même
-raccourci global** : la seconde le confisque à la première, qui devient
-silencieuse sans rien signaler.
+### One service at a time
 
-> Le lancement du service Python vit dans `setup()`, pas en argument de
-> `.manage()`. Les arguments du builder sont évalués **avant** l'initialisation
-> des plugins : une seconde instance sondait le port 8756 pendant 600 ms avant
-> de mourir, pour un lancement dont on savait déjà qu'il n'aboutirait pas.
+Port 8756 goes to whoever takes it first, and a service started by `run.ps1`
+outlives the console that launched it. Without a guard, the application attaches
+to whatever is there: it then drives a backend that ignores half its settings,
+and nothing says so — the menus simply come up empty.
 
-### Un seul service à la fois
+Hence `SETTINGS_REVISION`, declared **twice**:
 
-Le port 8756 se prend au premier arrivé, et un service lancé par `run.ps1`
-survit à la fermeture de sa console. Sans garde-fou, l'application se raccorde
-au premier venu : elle pilote alors un backend qui ignore la moitié de ses
-réglages, et rien ne le dit — les menus s'affichent simplement vides.
-
-D'où `SETTINGS_REVISION`, déclaré **deux fois** :
-
-| Fichier | Constante |
+| File | Constant |
 | --- | --- |
 | `backend/src/murmure/server.py` | `SETTINGS_REVISION` |
 | `frontend/src-tauri/src/lib.rs` | `SETTINGS_REVISION` |
 
-Au démarrage, l'application interroge `/health`. Même numéro : elle se raccorde.
-Numéro différent : elle arrête le service par `/shutdown` et relance le sien.
+At startup the application queries `/health`. Same number: it attaches.
+Different number: it stops the service via `/shutdown` and starts its own.
 
-> **Monter les deux ensemble** dès qu'un réglage est ajouté, retiré ou change de
-> sens. Ne monter que celui du backend rend tout service inacceptable pour
-> l'application installée ; ne monter que celui du frontend fait tuer un service
-> parfaitement valide à chaque démarrage.
+> **Raise both together** whenever a setting is added, removed, or changes
+> meaning. Raising only the backend's makes every service unacceptable to the
+> installed application; raising only the frontend's kills a perfectly valid
+> service on every startup.
 
-La version du paquet ne joue pas ce rôle : elle bouge trop rarement pour suivre
-les réglages.
+### Settings and data
 
-## Réglages
+`%APPDATA%\Murmure\config.toml` — only values differing from the defaults are
+written, so the file stays readable and hand-editable. History lives in
+`history.db` next to it, and optional audio recordings in `audio\`.
 
-`%APPDATA%\Murmure\config.toml` — seules les valeurs qui diffèrent du défaut y
-sont écrites, le fichier reste lisible. L'historique est dans `history.db` à côté.
+---
 
-## Vérifications
+## Development
+
+```powershell
+.\run.ps1        # service + application, frontend hot reload
+```
+
+### Tests
 
 ```powershell
 cd backend
-.\.venv\Scripts\python.exe scripts\smoke.py <fichier.wav> [id_modele ...]
-.\.venv\Scripts\python.exe scripts\ws_check.py 5          # dictée micro réelle
-.\.venv\Scripts\python.exe scripts\file_check.py <fichier> # import de fichiers
-
-# Dictée continue : un wav rejoué comme s'il sortait du micro.
-.\.venv\Scripts\python.exe scripts\stream_check.py <fichier.wav> [id_modele]
-.\.venv\Scripts\python.exe scripts\stream_service_check.py <fichier.wav> [id_modele]
+uv pip install -e ".[dev]"
+.\.venv\Scripts\python.exe -m pytest
+.\.venv\Scripts\python.exe -m ruff check .
 ```
 
-`stream_check` montre le découpage et le moment où chaque phrase tombe
-(`--realtime` pour juger le ressenti). `stream_service_check` passe par le
-Service entier et vérifie le contrat que voit le frontend : une suite de
-`commit`, des `revise` qui **recouvrent toutes les phrases sans trou ni
-chevauchement**, **un seul** `final`, et une seule entrée d'historique dont le
-texte est exactement la concaténation de ce qui a été diffusé. Un trou
-signifierait du texte affiché puis jamais remplacé ; un chevauchement, du texte
-écrit deux fois dans le document.
+The test suite covers the pure logic of the dictation path — segmentation,
+seams, polish acceptance bounds, chunking, settings persistence — and needs
+**no model and no GPU**: the voice-activity gate is substituted with a
+deterministic one. It enforces the invariants the design rests on, notably that
+**no audio sample is ever sent to the engine twice**, which is what stops a word
+being written into your document in duplicate.
 
-Il accepte lui aussi `--realtime` — indispensable pour voir l'aperçu et le
-polissage se déclencher comme au micro, car à pleine vitesse la segmentation a
-fini avant que le moteur n'ait rendu la première phrase — et `--verbose`, qui
-montre la taille de chaque fenêtre polie. Il travaille dans un dossier
-temporaire : l'historique réel n'est pas touché.
+### End-to-end checks
+
+These need a real model, and some need a microphone:
+
+```powershell
+cd backend
+.\.venv\Scripts\python.exe scripts\smoke.py <file.wav> [model_id ...]
+.\.venv\Scripts\python.exe scripts\ws_check.py 5          # real microphone dictation
+.\.venv\Scripts\python.exe scripts\file_check.py <file>   # file import
+.\.venv\Scripts\python.exe scripts\stream_check.py <file.wav> [model_id]
+.\.venv\Scripts\python.exe scripts\stream_service_check.py <file.wav> [model_id]
+
+# Diarisation, via le Service entier.
+.\.venv\Scripts\python.exe scripts\diarize_check.py <file> [model_id] [--speakers N]
+```
+
+`diarize_check` goes through `Service.transcribe_files` and checks that speaker
+turns are ordered and non-overlapping, that the displayed text is exactly the
+concatenation of those turns, and that the entry **re-read from SQLite** carries
+the same turns — a full JSON round-trip.
+
+`stream_check` shows the segmentation and when each sentence lands (`--realtime`
+to judge the feel). `stream_service_check` goes through the whole Service and
+verifies the contract the frontend sees: a series of `commit`, `revise` events
+that **cover every sentence with no gap and no overlap**, exactly **one**
+`final`, and a single history entry whose text is exactly the concatenation of
+what was broadcast. A gap would mean text displayed and then never replaced; an
+overlap, text written twice into the document. It works in a temporary folder —
+your real history is not touched.
+
+---
+
+## Security and privacy
+
+- **Audio and transcriptions never leave the machine.** Recognition is entirely
+  local; there is no telemetry and no analytics.
+- **The only network access is to Hugging Face**, to download a model and — when
+  a model is loaded — to check the cached revision is current. Set
+  `HF_HUB_OFFLINE=1` to suppress even that and work strictly from cache.
+- The service binds to **`127.0.0.1` only** and is unreachable from the network.
+- Transcriptions are stored **unencrypted** in `%APPDATA%\Murmure\history.db`.
+  Audio is only kept if you enable *Conserver l'audio*.
+- Speaker identification runs **locally like everything else**. Voice embeddings
+  are computed in memory to group turns within a single file and are never
+  stored, never compared across files, and never leave the machine: Murmure can
+  tell two people apart inside one recording, it cannot recognise who they are.
+- The local `/shutdown` endpoint is unauthenticated by design: it exists so a
+  newly launched application can replace a stale service holding port 8756.
+  Any local process can call it; the worst it can do is stop the service.
+- Cursor typing is refused by applications running as administrator — a Windows
+  protection, not a bug.
+
+## Contributing
+
+Issues and pull requests are welcome. Before opening a PR:
+
+- run `ruff check .` and `pytest` in `backend/`;
+- run `cargo fmt` and `cargo clippy` in `frontend/src-tauri/`;
+- if you change a setting's name or meaning, **raise `SETTINGS_REVISION` in both
+  files** (see [One service at a time](#one-service-at-a-time));
+- keep measured claims measured — this project documents what was observed, not
+  what was assumed.
+
+## Licence
+
+Murmure is free software, licensed under the
+**[GNU Affero General Public License v3.0 or later](LICENSE)**.
+
+You may use, study, modify and share it freely. If you distribute a modified
+version — **or run one as a network service** — you must release your source
+under the same licence. That is the point: Murmure stays public, open and free
+for everyone who receives it.
+
+Copyright © 2026 Onadja Palamanga.
+
+### Third-party components
+
+Models and libraries carry their own licences, which are not affected by the
+above: [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (MIT),
+[onnx-asr](https://github.com/istupakov/onnx-asr) (MIT),
+[Tauri](https://tauri.app/) (MIT/Apache-2.0), and the speech models published by
+NVIDIA, OpenAI and their respective redistributors. `ffmpeg`, if you supply it,
+is distributed under the LGPL or GPL depending on the build.

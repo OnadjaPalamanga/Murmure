@@ -21,7 +21,7 @@ import time
 import numpy as np
 
 from ..cuda_setup import ensure_cuda_dlls
-from .base import SAMPLE_RATE, Transcript
+from .base import SAMPLE_RATE, Transcript, Word
 
 log = logging.getLogger(__name__)
 
@@ -133,7 +133,9 @@ class WhisperEngine:
         except Exception:  # noqa: BLE001
             log.debug("Warmup Whisper sans effet", exc_info=True)
 
-    def transcribe(self, audio: np.ndarray, language=_UNSET) -> Transcript:
+    def transcribe(
+        self, audio: np.ndarray, language=_UNSET, *, timestamps: bool = False
+    ) -> Transcript:
         if not self.is_loaded:
             self.load()
 
@@ -149,14 +151,30 @@ class WhisperEngine:
             beam_size=self.beam_size,
             initial_prompt=self.initial_prompt,
             condition_on_previous_text=False,
-            without_timestamps=True,
+            # Les timestamps ne sont demandes que pour la diarisation. Les
+            # activer par defaut ferait payer a chaque dictee un alignement
+            # dont elle ne fait rien.
+            without_timestamps=not timestamps,
+            word_timestamps=timestamps,
             vad_filter=self.vad_filter,
             vad_parameters={"min_silence_duration_ms": 300},
             temperature=[0.0, 0.2, 0.4],
             no_speech_threshold=0.6,
             compression_ratio_threshold=2.4,
         )
-        text = " ".join(seg.text.strip() for seg in segments).strip()
+
+        # `segments` est un generateur paresseux : le parcourir une seule fois,
+        # en collectant texte et mots au meme passage.
+        parts: list[str] = []
+        words: list[Word] = []
+        for seg in segments:
+            parts.append(seg.text.strip())
+            for word in getattr(seg, "words", None) or ():
+                label = word.word.strip()
+                if label:
+                    words.append(Word(float(word.start), float(word.end), label))
+
+        text = " ".join(p for p in parts if p).strip()
         latency_ms = int((time.perf_counter() - started) * 1000)
 
         return Transcript(
@@ -167,5 +185,10 @@ class WhisperEngine:
             device=self.device,
             # La dictee continue s'en sert pour ne detecter la langue qu'une
             # fois par dictee, au lieu d'une fois par phrase.
-            extra={"language_probability": float(getattr(info, "language_probability", 0.0) or 0.0)},
+            extra={
+                "language_probability": float(
+                    getattr(info, "language_probability", 0.0) or 0.0
+                )
+            },
+            words=words,
         )

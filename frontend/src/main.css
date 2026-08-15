@@ -380,6 +380,89 @@ body {
   cursor: text;
 }
 
+/* --- Dictee diarisee : un tour de parole par ligne --------------------- */
+
+/* Le repli a 4 lignes de .entry-text passe par -webkit-line-clamp, qui exige
+   display:-webkit-box — lequel ecrase la mise en page des tours. On replie donc
+   sur la hauteur, qui donne le meme resultat visuel sans ce conflit. */
+.entry-text.dialogue {
+  display: block;
+  -webkit-line-clamp: unset;
+  max-height: 7.4em;
+}
+.entry.open .entry-text.dialogue {
+  max-height: none;
+}
+
+.turn {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 6px;
+}
+.turn:last-child {
+  margin-bottom: 0;
+}
+
+.turn-who {
+  flex: 0 0 auto;
+  height: fit-content;
+  padding: 1px 7px;
+  border-radius: var(--r-sm);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--turn-color);
+  background: color-mix(in srgb, var(--turn-color) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--turn-color) 34%, transparent);
+}
+
+.turn-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Palette des locuteurs. Choisies distinctes les unes des autres plutot que
+   derivees de l'accent : deux personnes qui se repondent doivent se
+   differencier d'un coup d'oeil, sans qu'on ait a lire l'etiquette. Au-dela de
+   six, les couleurs se repetent et l'etiquette porte seule l'information. */
+.turn[data-speaker="0"] {
+  --turn-color: #4f8cff;
+}
+.turn[data-speaker="1"] {
+  --turn-color: #3ddc97;
+}
+.turn[data-speaker="2"] {
+  --turn-color: #ffb84d;
+}
+.turn[data-speaker="3"] {
+  --turn-color: #e052c8;
+}
+.turn[data-speaker="4"] {
+  --turn-color: #38bdf8;
+}
+.turn[data-speaker="5"] {
+  --turn-color: #ff8a5f;
+}
+.turn[data-speaker="unknown"] {
+  --turn-color: var(--text-faint);
+}
+
+/* Reglages poses dans l'onglet Fichiers, sous la zone de depot.
+   `.form` est aussi une des zones defilantes de la fenetre (`flex: 1 1 auto`
+   avec `overflow-y: auto`) : ici c'est un simple encart, il ne doit ni s'etirer
+   pour occuper la hauteur restante ni se doter de sa propre barre de defilement. */
+.form-inline {
+  flex: 0 0 auto;
+  overflow: visible;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 14px 16px;
+  padding-bottom: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
 .entry-actions {
   display: flex;
   gap: 6px;

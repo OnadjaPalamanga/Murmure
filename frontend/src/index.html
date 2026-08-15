@@ -93,6 +93,42 @@
             </div>
           </div>
 
+          <!-- Les réglages de diarisation vivent ici, et pas dans Réglages :
+               ils ne concernent que l'import de fichiers, et c'est au moment de
+               déposer un enregistrement qu'on sait combien de gens y parlent. -->
+          <div class="form form-inline" id="diarize-form">
+            <label class="row switch">
+              <span class="label">
+                Identifier les locuteurs
+                <em id="diarize-hint"
+                  >Sépare la transcription par personne qui parle. Pour les réunions et
+                  les entretiens ; inutile si tu es seul à parler.</em
+                >
+              </span>
+              <input type="checkbox" id="set-diarize_files" />
+            </label>
+
+            <label class="row" id="diarize-count-row">
+              <span class="label">
+                Nombre de personnes
+                <em
+                  >Si tu le connais, indique-le : le résultat est nettement plus fiable
+                  qu'en détection automatique.</em
+                >
+              </span>
+              <select id="set-diarize_speakers" class="input">
+                <option value="0">Détection automatique</option>
+                <option value="2">2 personnes</option>
+                <option value="3">3 personnes</option>
+                <option value="4">4 personnes</option>
+                <option value="5">5 personnes</option>
+                <option value="6">6 personnes</option>
+                <option value="7">7 personnes</option>
+                <option value="8">8 personnes</option>
+              </select>
+            </label>
+          </div>
+
           <div class="jobs" id="jobs"></div>
         </section>
 
