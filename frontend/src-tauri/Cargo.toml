@@ -4,6 +4,9 @@ version = "0.1.0"
 description = "Dictee locale instantanee"
 edition = "2021"
 rust-version = "1.77"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/OnadjaPalamanga/Murmure"
+publish = false
 
 [lib]
 name = "murmure_lib"
@@ -16,7 +19,6 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-clipboard-manager = "2"
-tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }

@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 log = logging.getLogger(__name__)
 

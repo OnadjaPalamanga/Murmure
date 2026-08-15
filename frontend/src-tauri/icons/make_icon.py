@@ -1,6 +1,11 @@
 """Genere l'icone source (PNG 1024) : barres de forme d'onde sur fond degrade.
 
-    python make_icon.py   puis   npx tauri icon icons/source.png
+    uv run --with pillow python make_icon.py
+    npx tauri icon icons/source.png
+
+La seconde commande derive tout le jeu d'icones de `source.png`. Outil ponctuel :
+Pillow n'est volontairement pas une dependance du projet, qui n'en a pas besoin
+pour tourner.
 """
 
 from pathlib import Path

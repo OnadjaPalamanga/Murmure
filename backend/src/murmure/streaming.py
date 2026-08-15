@@ -440,7 +440,11 @@ class PhraseStreamer:
             # pas l'audio d'une fenetre encore ouverte.
             self._trim(start - self._lead_samples)
 
-        if self._speech_start is not None and self._frame_pos - self._speech_start >= self._max_samples:
+        too_long = (
+            self._speech_start is not None
+            and self._frame_pos - self._speech_start >= self._max_samples
+        )
+        if too_long:
             # Personne ne s'est tu depuis `max_phrase_s`. Couper est inevitable :
             # autant le faire au point le plus silencieux des dernieres secondes.
             self._close_phrase(self._quietest_cut())

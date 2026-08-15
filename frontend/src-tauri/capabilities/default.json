@@ -16,8 +16,6 @@
     "core:webview:allow-set-webview-focus",
     "global-shortcut:default",
     "clipboard-manager:allow-write-text",
-    "clipboard-manager:allow-read-text",
-    "dialog:allow-open",
-    "shell:allow-open"
+    "dialog:allow-open"
   ]
 }

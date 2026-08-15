@@ -1,0 +1,22 @@
+# Normalise line endings so a clone is byte-identical across platforms.
+* text=auto eol=lf
+
+# Windows-native tooling: these must keep CRLF or PowerShell/cmd may misparse.
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Binary assets — never touch, never diff.
+*.png binary
+*.ico binary
+*.icns binary
+*.wav binary
+*.exe binary
+
+# Lockfiles are generated; collapse them in diffs and reviews.
+Cargo.lock linguist-generated=true
+package-lock.json linguist-generated=true
+
+# The repository is a Python + Rust + JS project. Without this, GitHub reports
+# it as mostly HTML/CSS because of the frontend assets.
+frontend/src/*.html linguist-detectable=false

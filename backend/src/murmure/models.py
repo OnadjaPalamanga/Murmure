@@ -241,6 +241,31 @@ def default_model_id() -> str:
     return next((s.id for s in CATALOG if s.is_default), CATALOG[0].id)
 
 
+def resolve_spec(model_id: str) -> ModelSpec:
+    """Comme `get_spec`, mais retombe sur le defaut au lieu de lever.
+
+    Un identifiant peut disparaitre entre deux versions : entree de catalogue
+    renommee, ou dossier depose dans `models/` que l'utilisateur a efface. La
+    configuration, elle, garde l'ancien nom. Sans repli, `ensure_engine` leve
+    une `KeyError` a CHAQUE dictee et l'application ne s'en sort plus toute
+    seule : le modele courant est celui qui n'existe pas, et rien dans
+    l'interface ne permet d'en changer puisque plus rien ne repond.
+
+    On prefere donc dicter avec le modele recommande et le dire dans le
+    journal. L'appelant remet la configuration d'aplomb.
+    """
+    try:
+        return get_spec(model_id)
+    except KeyError:
+        fallback = get_spec(default_model_id())
+        log.warning(
+            "Modele « %s » introuvable (renomme ou supprime) : repli sur « %s »",
+            model_id,
+            fallback.id,
+        )
+        return fallback
+
+
 def build_engine(spec: ModelSpec, *, prefer_gpu: bool = True) -> Engine:
     """Instancie le moteur correspondant. Ne charge rien en VRAM (voir Engine.load)."""
     if spec.engine == "parakeet":

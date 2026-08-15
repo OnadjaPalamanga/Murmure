@@ -1,41 +1,43 @@
-# Environnements et dependances
+# --- Environments and dependencies ---
 backend/.venv/
 frontend/node_modules/
 __pycache__/
 *.egg-info/
+*.pyc
 
-# Artefacts de compilation
+# --- Build artifacts ---
 frontend/src-tauri/target/
 frontend/src-tauri/gen/
 
-# Modeles telecharges (plusieurs Go)
-models/
+# --- Downloaded models (several GB) ---
+# Note the `models/*` form: git does not descend into an excluded directory,
+# so `models/` followed by `!models/.gitkeep` would never un-ignore anything.
+models/*
 !models/.gitkeep
 
-# Binaires externes (ffmpeg fait 79 Mo)
-bin/
+# --- External binaries (ffmpeg is ~80 MB) ---
+bin/*
+!bin/.gitkeep
 
-# Donnees locales et personnelles
+# --- Local and personal data ---
 *.db
 *.db-shm
 *.db-wal
 *.log
 recordings/
-_superwhisper_sauvegarde/
 
-# Caches d'outils
+# --- Tool caches ---
 .ruff_cache/
 .pytest_cache/
 .mypy_cache/
-*.pyc
 
-# Editeurs et systeme
+# --- Editors and OS ---
 .vscode/
 .idea/
 Thumbs.db
 desktop.ini
 *~
 
-# Fichiers de travail temporaires
+# --- Scratch files ---
 *.tmp
 scratch/

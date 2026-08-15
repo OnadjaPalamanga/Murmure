@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend — lint and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Deliberately NOT `pip install -e .[dev]`. The runtime stack pulls
+      # onnxruntime-gpu, faster-whisper and the CUDA 12 runtime — several GB,
+      # for a GPU no runner has. The test suite is built to need none of it:
+      # the voice-activity gate is substituted, so every import stays light.
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip pytest ruff numpy platformdirs
+
+      - name: Lint
+        working-directory: backend
+        run: ruff check --output-format=github .
+
+      - name: Tests
+        working-directory: backend
+        run: pytest
+
+  frontend:
+    name: Frontend — Rust check
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: frontend/src-tauri
+
+      # No npm step: `frontendDist` points at static HTML/CSS/JS, there is
+      # nothing to bundle before the Rust side can be checked.
+      - name: Formatting
+        working-directory: frontend/src-tauri
+        run: cargo fmt --check
+
+      - name: Clippy
+        working-directory: frontend/src-tauri
+        run: cargo clippy --all-targets -- -D warnings

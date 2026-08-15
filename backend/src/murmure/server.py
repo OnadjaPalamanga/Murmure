@@ -32,9 +32,13 @@ PORT = 8756
 #
 # `SETTINGS_REVISION` monte des qu'un reglage est ajoute, retire ou change de
 # sens. La version du paquet ne suffit pas : elle bouge trop rarement.
-SETTINGS_REVISION = 2
+SETTINGS_REVISION = 3
 
 service = Service()
+
+# Taches d'arret en vol. Voir `/shutdown` : sans cette reference forte, la
+# boucle asyncio peut ramasser la tache avant qu'elle n'ait fait son travail.
+_pending_shutdown: set[asyncio.Task] = set()
 
 
 @asynccontextmanager
@@ -84,7 +88,14 @@ async def shutdown() -> JSONResponse:
         await asyncio.sleep(0.1)
         signal.raise_signal(signal.SIGTERM)
 
-    asyncio.create_task(stop())
+    # La reference est GARDEE. La boucle asyncio ne retient ses taches que
+    # faiblement : une tache dont plus personne ne tient le handle peut etre
+    # ramassee avant d'avoir fini. Ici ce serait le SIGTERM qui ne partirait
+    # jamais — l'application d'en face attend alors 2 s que le port se libere,
+    # renonce, et l'utilisateur se retrouve avec le service perime qu'on
+    # croyait avoir remplace.
+    _pending_shutdown.add(task := asyncio.create_task(stop()))
+    task.add_done_callback(_pending_shutdown.discard)
     return JSONResponse({"ok": True, "stopping": True})
 
 

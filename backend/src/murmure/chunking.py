@@ -56,11 +56,10 @@ def split_on_silence(
     while total - pos > max_frames:
         lo = pos + max(target_frames - window_frames, 1)
         hi = min(pos + max_frames, total - 1)
-        if hi <= lo:
-            cut = min(pos + max_frames, total - 1)
-        else:
-            # Le point le plus silencieux de la fenetre : la coupure la moins destructrice.
-            cut = lo + int(np.argmin(energy[lo:hi]))
+        # Le point le plus silencieux de la fenetre : la coupure la moins
+        # destructrice. Fenetre vide — il ne reste pas de quoi en chercher une —
+        # on coupe au plafond, faute de mieux.
+        cut = lo + int(np.argmin(energy[lo:hi])) if hi > lo else hi
         cuts.append(cut)
         pos = cut
 

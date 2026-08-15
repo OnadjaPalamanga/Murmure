@@ -63,7 +63,7 @@ fn find_service_python() -> Option<(PathBuf, PathBuf)> {
 /// Revision des reglages attendue du service. Doit valoir `SETTINGS_REVISION`
 /// dans `backend/src/murmure/server.py` : les deux montent ensemble des qu'un
 /// reglage est ajoute, retire ou change de sens.
-const SETTINGS_REVISION: u32 = 2;
+const SETTINGS_REVISION: u32 = 3;
 
 /// Ce que repond le service sur le port 8756, s'il repond.
 enum ServiceState {
@@ -111,8 +111,14 @@ fn probe_service() -> ServiceState {
     let found = body
         .split("\"settings_revision\"")
         .nth(1)
-        .and_then(|rest| rest.split(|c: char| c == ',' || c == '}').next())
-        .and_then(|value| value.trim_start_matches(&[':', ' '][..]).trim().parse::<u32>().ok());
+        .and_then(|rest| rest.split([',', '}']).next())
+        .and_then(|value| {
+            value
+                .trim_start_matches(&[':', ' '][..])
+                .trim()
+                .parse::<u32>()
+                .ok()
+        });
 
     match found {
         Some(revision) if revision == SETTINGS_REVISION => ServiceState::Current,
@@ -383,7 +389,6 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             open_main(app.clone(), None);
         }))
-        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(

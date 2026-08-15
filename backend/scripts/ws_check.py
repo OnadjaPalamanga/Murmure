@@ -46,7 +46,7 @@ async def main(record_s: float) -> int:
             try:
                 remaining = deadline - asyncio.get_running_loop().time()
                 event = json.loads(await asyncio.wait_for(ws.recv(), timeout=remaining))
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 break
             if event["type"] == "level":
                 levels += 1
@@ -65,7 +65,8 @@ async def main(record_s: float) -> int:
                 print(f"texte           : {event['entry']['text']}")
                 break
             elif kind == "empty":
-                print(f"\nvide            : {event['reason']} (silence detecte, comportement normal)")
+                print(f"\nvide            : {event['reason']}")
+                print("                  (silence detecte, comportement normal)")
                 break
             elif kind == "error":
                 print(f"\nERREUR          : {event['message']}")
