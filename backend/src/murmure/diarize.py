@@ -80,11 +80,23 @@ DEFAULT_THRESHOLD = 0.6
 # bribes et le regroupement invente des locuteurs.
 MIN_DURATION_S = 3.0
 
-ProgressFn = Callable[[str], None]
+# L'avancement remonte en (cle, parametres) plutot qu'en phrase toute faite :
+# l'interface existe en deux langues, et c'est elle qui sait laquelle afficher.
+# Le service, lui, n'a aucune raison de le savoir.
+ProgressFn = Callable[[str, dict], None]
 
 
 class DiarizationUnavailable(RuntimeError):
-    """La diarisation ne peut pas tourner : dependance ou modele manquant."""
+    """La diarisation ne peut pas tourner : dependance ou modele manquant.
+
+    `key` designe le cas pour l'interface, qui le traduit ; le message reste
+    lisible tel quel dans le journal et sert de repli.
+    """
+
+    def __init__(self, message: str, *, key: str = "", params: dict | None = None) -> None:
+        super().__init__(message)
+        self.key = key
+        self.params = params or {}
 
 
 @dataclass(slots=True)
@@ -127,14 +139,21 @@ def _download(url: str, target: Path, on_progress: ProgressFn | None, label: str
                     received += len(chunk)
                     if on_progress and received >= next_report:
                         next_report += step
-                        done = received // 1024 // 1024
-                        suffix = f" / {total // 1024 // 1024} Mo" if total else " Mo"
-                        on_progress(f"Téléchargement {label} — {done}{suffix}")
+                        on_progress(
+                            "diarize_download",
+                            {
+                                "part": label,
+                                "done_mb": received // 1024 // 1024,
+                                "total_mb": total // 1024 // 1024,
+                            },
+                        )
         partial.replace(target)
     except (urllib.error.URLError, OSError) as exc:
         partial.unlink(missing_ok=True)
         raise DiarizationUnavailable(
-            f"Téléchargement du modèle de diarisation impossible ({label}) : {exc}"
+            f"Téléchargement du modèle de diarisation impossible ({label}) : {exc}",
+            key="diarize_download_failed",
+            params={"part": label, "detail": str(exc)},
         ) from exc
 
 
@@ -154,17 +173,23 @@ def ensure_models(on_progress: ProgressFn | None = None) -> None:
                 # sortiraient du dossier — l'archive vient du reseau.
                 tar.extractall(DIARIZATION_DIR, filter="data")
         except (tarfile.TarError, OSError) as exc:
-            raise DiarizationUnavailable(f"Archive de segmentation illisible : {exc}") from exc
+            raise DiarizationUnavailable(
+                f"Archive de segmentation illisible : {exc}",
+                key="diarize_archive_unreadable",
+                params={"detail": str(exc)},
+            ) from exc
         finally:
             archive.unlink(missing_ok=True)
 
     if not EMBEDDING_MODEL.is_file():
-        _download(EMBEDDING_URL, EMBEDDING_MODEL, on_progress, "empreinte vocale")
+        _download(EMBEDDING_URL, EMBEDDING_MODEL, on_progress, "embedding")
 
     if not models_present():
         raise DiarizationUnavailable(
             "Modèles de diarisation absents après téléchargement. "
-            f"Attendus dans {DIARIZATION_DIR}."
+            f"Attendus dans {DIARIZATION_DIR}.",
+            key="diarize_models_missing",
+            params={"path": str(DIARIZATION_DIR)},
         )
 
 
@@ -191,7 +216,8 @@ class Diarizer:
             import sherpa_onnx
         except ImportError as exc:  # pragma: no cover - depend de l'installation
             raise DiarizationUnavailable(
-                "sherpa-onnx n'est pas installé. Relance : uv pip install -e ."
+                "sherpa-onnx n'est pas installé. Relance : uv pip install -e .",
+                key="diarize_not_installed",
             ) from exc
 
         config = sherpa_onnx.OfflineSpeakerDiarizationConfig(
@@ -215,7 +241,8 @@ class Diarizer:
         if not config.validate():
             raise DiarizationUnavailable(
                 "Configuration de diarisation refusée par sherpa-onnx "
-                "(modèle manquant ou illisible)."
+                "(modèle manquant ou illisible).",
+                key="diarize_config_rejected",
             )
         return sherpa_onnx.OfflineSpeakerDiarization(config)
 

@@ -21,6 +21,7 @@ from .audio import Recorder, list_input_devices
 from .config import ConfigStore
 from .diarize import TOTAL_DOWNLOAD_MB as DIARIZATION_MB
 from .diarize import DiarizationUnavailable, Diarizer, ensure_models
+from .diarize import clear_models as clear_diarization_models
 from .diarize import is_installed as diarization_installed
 from .diarize import models_present as diarization_models_present
 from .download import DownloadWatcher
@@ -40,6 +41,20 @@ SILENCE_PEAK = 0.005
 # Confiance exigee pour figer la langue d'une dictee continue (voir
 # `_remember_language`).
 LANGUAGE_PIN_CONFIDENCE = 0.85
+
+
+# Repli lisible pour les etapes de diarisation. L'interface traduit la cle ;
+# ce texte-ci ne sert que si elle ne la connait pas — un frontend plus ancien —
+# et il part aussi dans le journal.
+def _diarize_message(key: str, params: dict | None) -> str:
+    params = params or {}
+    if key == "diarize_download":
+        total = params.get("total_mb") or 0
+        seen = f"{params.get('done_mb', 0)} Mo"
+        return f"Téléchargement ({params.get('part', '')}) — {seen}" + (
+            f" / {total} Mo" if total else ""
+        )
+    return "Identification des locuteurs…"
 
 
 def _echoes_prompt(text: str, prompt: str | None) -> bool:
@@ -96,6 +111,12 @@ class Service:
         # Charge a la premiere diarisation seulement, puis garde resident : un
         # lot de fichiers ne doit pas relire les modeles a chaque piste.
         self._diarizer: Diarizer | None = None
+        # Un seul telechargement des modeles de locuteurs a la fois. Deux
+        # demandes concurrentes — le bouton des reglages et un fichier importe
+        # qui les reclame au passage — ecriraient dans le meme fichier `.part`
+        # et se termineraient par un modele tronque que `models_present()`
+        # declarerait complet.
+        self._diarize_download_lock = threading.Lock()
 
     # ------------------------------------------------------- evenements
 
@@ -172,6 +193,10 @@ class Service:
                         "type": "model_stage",
                         "model_id": spec.id,
                         "stage": "loading",
+                        # `key` + `params` pour l'interface, qui existe en deux
+                        # langues ; `message` reste le repli lisible.
+                        "key": "stage_loading",
+                        "params": {"label": spec.label},
                         "message": f"Préparation de {spec.label}…",
                     }
                 )
@@ -189,6 +214,7 @@ class Service:
                         "type": "model_stage",
                         "model_id": spec.id,
                         "stage": "warmup",
+                        "key": "stage_warmup",
                         "message": "Préparation des noyaux GPU…",
                     }
                 )
@@ -212,6 +238,8 @@ class Service:
                     "stage": "downloading",
                     "downloaded_bytes": downloaded,
                     "total_bytes": 0,
+                    "key": "stage_downloading",
+                    "params": {"label": spec.label},
                     "message": f"Téléchargement de {spec.label}…",
                 }
             )
@@ -233,7 +261,14 @@ class Service:
             self.ensure_engine()
         except Exception as exc:  # noqa: BLE001
             log.exception("Prechargement du modele impossible")
-            self.emit({"type": "error", "message": f"Chargement du modele : {exc}"})
+            self.emit(
+                {
+                    "type": "error",
+                    "key": "error_model_load",
+                    "params": {"detail": str(exc)},
+                    "message": f"Chargement du modele : {exc}",
+                }
+            )
 
     def preload(self) -> None:
         if self.config.settings.preload_on_start:
@@ -278,7 +313,13 @@ class Service:
             duration = len(audio) / SAMPLE_RATE
             if duration < MIN_AUDIO_S or (audio.size and float(np.abs(audio).max()) < SILENCE_PEAK):
                 self._set_state("idle")
-                self.emit({"type": "empty", "reason": "trop court ou silencieux"})
+                self.emit(
+                    {
+                        "type": "empty",
+                        "key": "empty_too_short",
+                        "reason": "trop court ou silencieux",
+                    }
+                )
                 return
 
             engine = self.ensure_engine()
@@ -287,7 +328,9 @@ class Service:
 
             if not text:
                 self._set_state("idle")
-                self.emit({"type": "empty", "reason": "aucune parole detectee"})
+                self.emit(
+                    {"type": "empty", "key": "empty_no_speech", "reason": "aucune parole detectee"}
+                )
                 return
 
             audio_path = self._save_audio(audio) if self.config.settings.keep_audio else None
@@ -494,7 +537,9 @@ class Service:
             text = " ".join(p for p in streamer.finish() if p).strip()
             if not text:
                 self._set_state("idle")
-                self.emit({"type": "empty", "reason": "aucune parole detectee"})
+                self.emit(
+                    {"type": "empty", "key": "empty_no_speech", "reason": "aucune parole detectee"}
+                )
                 return
 
             audio_seconds = len(audio) / SAMPLE_RATE
@@ -551,6 +596,8 @@ class Service:
                         "index": index,
                         "total": total,
                         "name": path.name,
+                        "key": "file_reading",
+                        "params": {"name": path.name},
                         "message": f"Lecture de {path.name}…",
                     }
                 )
@@ -566,6 +613,8 @@ class Service:
                         "total": total,
                         "name": path.name,
                         "audio_seconds": round(duration, 2),
+                        "key": "file_transcribing",
+                        "params": {"name": path.name, "minutes": round(duration / 60, 1)},
                         "message": f"Transcription de {path.name} ({duration / 60:.1f} min)…",
                     }
                 )
@@ -585,6 +634,7 @@ class Service:
                             "type": "file_done",
                             "name": path.name,
                             "ok": False,
+                            "key": "file_no_speech",
                             "message": "Aucune parole détectée",
                         }
                     )
@@ -644,7 +694,7 @@ class Service:
         settings = self.config.settings
         name = path.name
 
-        def stage(message: str) -> None:
+        def stage(key: str, params: dict | None = None) -> None:
             self.emit(
                 {
                     "type": "file_progress",
@@ -652,7 +702,9 @@ class Service:
                     "index": index,
                     "total": total,
                     "name": name,
-                    "message": message,
+                    "key": key,
+                    "params": {"name": name, **(params or {})},
+                    "message": _diarize_message(key, params),
                 }
             )
 
@@ -663,8 +715,12 @@ class Service:
                 log.info("Diarisation impossible sur %s : aucun mot date", name)
                 return fallback, None, 0
 
-            stage(f"Identification des locuteurs — {name}…")
-            ensure_models(on_progress=stage)
+            stage("diarize_running")
+            # Le verrou attend : si les reglages sont en train de telecharger
+            # les memes modeles, ce fichier repartira une fois qu'ils seront la,
+            # plutot que de retelecharger par-dessus.
+            with self._diarize_download_lock:
+                ensure_models(on_progress=stage)
 
             if self._diarizer is None:
                 self._diarizer = Diarizer()
@@ -694,12 +750,85 @@ class Service:
 
         except DiarizationUnavailable as exc:
             log.warning("Diarisation indisponible sur %s : %s", name, exc)
-            self.emit({"type": "error", "message": f"Diarisation indisponible : {exc}"})
+            self.emit(
+                {
+                    "type": "error",
+                    "key": exc.key or "error_diarize_unavailable",
+                    "params": {**exc.params, "detail": str(exc)},
+                    "message": f"Diarisation indisponible : {exc}",
+                }
+            )
         except Exception as exc:  # noqa: BLE001 - jamais au prix de la transcription
             log.exception("Diarisation en echec sur %s", name)
-            self.emit({"type": "error", "message": f"Diarisation en échec : {exc}"})
+            self.emit(
+                {
+                    "type": "error",
+                    "key": "error_diarize_failed",
+                    "params": {"detail": str(exc)},
+                    "message": f"Diarisation en échec : {exc}",
+                }
+            )
 
         return fallback, None, 0
+
+    # --------------------------------------- modeles de diarisation (reglages)
+
+    def diarization_download(self) -> dict:
+        """Telecharge les modeles depuis les reglages, sans attendre un fichier.
+
+        Les faire venir au premier import marche, mais 35 Mo au milieu d'une
+        transcription d'une heure surprennent. Ici, l'utilisateur choisit le
+        moment — et peut verifier que ca a marche avant d'en avoir besoin.
+        """
+
+        def stage(key: str, params: dict | None = None) -> None:
+            self.emit(
+                {
+                    "type": "diarization_progress",
+                    "key": key,
+                    "params": params or {},
+                    "message": _diarize_message(key, params),
+                }
+            )
+
+        # Sans attendre : un second clic pendant le telechargement ne doit pas
+        # en lancer un deuxieme, il doit ne rien faire.
+        if not self._diarize_download_lock.acquire(blocking=False):
+            log.info("Telechargement des modeles de diarisation deja en cours")
+            return self.snapshot()
+
+        try:
+            stage("diarize_download", {"part": "segmentation", "done_mb": 0, "total_mb": 0})
+            ensure_models(on_progress=stage)
+        except DiarizationUnavailable as exc:
+            log.warning("Telechargement des modeles de diarisation en echec : %s", exc)
+            self.emit(
+                {
+                    "type": "error",
+                    "key": exc.key or "error_diarize_unavailable",
+                    "params": {**exc.params, "detail": str(exc)},
+                    "message": str(exc),
+                }
+            )
+        finally:
+            self._diarize_download_lock.release()
+            # L'interface a une barre de progression a refermer, et elle doit
+            # l'apprendre meme quand le telechargement a echoue.
+            self.emit(
+                {"type": "diarization_done", "ready": diarization_models_present()}
+            )
+        return self.snapshot()
+
+    def diarization_clear(self) -> dict:
+        """Supprime les modeles telecharges.
+
+        Le diarizeur resident est lache AVANT l'effacement : onnxruntime garde
+        les fichiers ouverts tant qu'une session vit, et Windows refuse de
+        supprimer un fichier ouvert — on effacerait a moitie.
+        """
+        self._diarizer = None
+        clear_diarization_models()
+        return self.snapshot()
 
     # ------------------------------------------------------------- reglages
 

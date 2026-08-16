@@ -984,6 +984,28 @@ legend + .row {
   opacity: 0.4;
 }
 
+/* Un paragraphe d'introduction sous le titre du groupe, quand le groupe entier
+   demande une phrase d'explication plutot qu'un reglage par reglage. Il tient
+   la meme place que la premiere `.row` et doit donc, comme elle, passer sous le
+   `legend` flotte. */
+.fieldset-intro {
+  clear: both;
+  margin: 0;
+  padding: 4px 0 12px;
+  max-width: 62ch;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-faint);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Deux boutons a la place ou les autres lignes ont leur champ de saisie. */
+.actions-inline {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+}
+
 .label {
   flex: 1;
   display: flex;

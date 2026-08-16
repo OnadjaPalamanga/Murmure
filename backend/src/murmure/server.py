@@ -31,8 +31,11 @@ PORT = 8756
 # la moindre erreur, parce que personne n'avait demande son age.
 #
 # `SETTINGS_REVISION` monte des qu'un reglage est ajoute, retire ou change de
-# sens. La version du paquet ne suffit pas : elle bouge trop rarement.
-SETTINGS_REVISION = 3
+# sens — et de meme quand une commande apparait : une interface qui compte sur
+# `diarize_download` et parle a un service qui l'ignore ne recoit qu'un
+# « commande inconnue » au moment ou l'utilisateur clique.
+# La version du paquet ne suffit pas : elle bouge trop rarement.
+SETTINGS_REVISION = 4
 
 service = Service()
 
@@ -152,6 +155,18 @@ async def _handle(command: dict[str, Any]) -> dict[str, Any] | None:
         case "update_settings":
             changes = command.get("settings", {})
             snapshot = await asyncio.to_thread(service.update_settings, changes)
+            return {"type": "snapshot", **snapshot}
+
+        # Les 35 Mo de modeles de diarisation se telechargent depuis les
+        # reglages, pas seulement au premier fichier importe. Dans un thread :
+        # le telechargement dure, la boucle asyncio doit rester libre pour
+        # diffuser l'avancement qu'il emet.
+        case "diarize_download":
+            snapshot = await asyncio.to_thread(service.diarization_download)
+            return {"type": "snapshot", **snapshot}
+
+        case "diarize_clear":
+            snapshot = await asyncio.to_thread(service.diarization_clear)
             return {"type": "snapshot", **snapshot}
 
         case "history_search":

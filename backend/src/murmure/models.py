@@ -29,6 +29,15 @@ TIER_BALANCED = "equilibre"
 TIER_BEST = "qualite"
 TIER_ORDER = [TIER_CPU, TIER_FAST, TIER_BALANCED, TIER_BEST]
 
+# Sous-dossiers de `models/` qui ne sont PAS des modeles de transcription.
+# `hub` est le cache HuggingFace ; `diarization` contient l'identification des
+# locuteurs, dont l'extracteur d'empreinte vocale est un .onnx pose a la racine
+# du dossier — exactement la signature qu'on utilise pour reconnaitre un modele
+# onnx-asr depose a la main. Sans cette liste, il apparait dans le catalogue
+# comme un modele de transcription qu'on peut selectionner, et le choisir
+# casse la dictee.
+RESERVED_DIRS = frozenset({"hub", "diarization"})
+
 # Une dictee ne doit pas confisquer la machine. Quatre fils suffisent aux petits
 # modeles et laissent l'ordinateur reactif ; au-dela le gain est faible et le
 # pic de consommation, lui, ne l'est pas.
@@ -44,6 +53,13 @@ class ModelSpec:
     blurb: str
     vram_mb: int
     languages: str
+    # L'interface existe en francais et en anglais. Les deux versions vivent
+    # cote a cote plutot que dans un fichier de traduction separe : ce sont des
+    # descriptions techniques, et les voir ensemble est ce qui evite qu'elles
+    # divergent quand un modele change de comportement. Vide = repli sur le
+    # francais, ce qui laisse un modele local se decrire dans une seule langue.
+    blurb_en: str = ""
+    languages_en: str = ""
     tier: str = TIER_BALANCED
     # Depot HuggingFace reel, pour pouvoir telecharger avec une barre de
     # progression avant de confier le modele a la bibliotheque.
@@ -68,8 +84,12 @@ CATALOG: list[ModelSpec] = [
         blurb="Le defaut quand il n'y a pas de carte graphique. Etonnamment "
         "juste pour sa taille : garde la structure des phrases et les mots "
         "anglais. Se trompe sur les noms propres et le vocabulaire rare.",
+        blurb_en="The default when there is no graphics card. Surprisingly "
+        "accurate for its size: it holds sentence structure together and keeps "
+        "English words. It gets proper nouns and rare vocabulary wrong.",
         vram_mb=0,
         languages="99 langues, detection automatique",
+        languages_en="99 languages, auto-detected",
         hf_repo="Systran/faster-whisper-base",
         tier=TIER_CPU,
         options={"compute_type": "int8", "beam_size": 1, "cpu_threads": CPU_THREADS},
@@ -81,8 +101,11 @@ CATALOG: list[ModelSpec] = [
         source="small",
         blurb="Nettement plus precis que base, pour deux fois et demie le temps. "
         "Le bon choix sur CPU des que la dictee compte.",
+        blurb_en="Clearly more accurate than base, for two and a half times "
+        "the time. The right choice on CPU as soon as the dictation matters.",
         vram_mb=0,
         languages="99 langues, detection automatique",
+        languages_en="99 languages, auto-detected",
         hf_repo="Systran/faster-whisper-small",
         tier=TIER_CPU,
         options={"compute_type": "int8", "beam_size": 1, "cpu_threads": CPU_THREADS},
@@ -94,8 +117,11 @@ CATALOG: list[ModelSpec] = [
         source="tiny",
         blurb="Pour une machine vraiment modeste. Qualite juste suffisante pour "
         "des notes courtes, a ne pas utiliser pour du texte qui compte.",
+        blurb_en="For a genuinely modest machine. Quality just good enough for "
+        "short notes; do not use it for text that matters.",
         vram_mb=0,
         languages="99 langues, detection automatique",
+        languages_en="99 languages, auto-detected",
         hf_repo="Systran/faster-whisper-tiny",
         tier=TIER_CPU,
         # Sans amorce : tiny est trop petit pour la suivre, il la recopie puis
@@ -117,8 +143,14 @@ CATALOG: list[ModelSpec] = [
         "Mais sa detection de langue bascule mot a mot : sur du francais "
         "melange d'anglais, il ecrit « it's quite » pour « c'est quand meme ». "
         "A reserver au francais pur ou a l'anglais pur.",
+        blurb_en="Very fast, and invents nothing during silences (transducer). "
+        "But its language detection switches word by word: on French mixed "
+        "with English it writes « it's quite » for "
+        "« c'est quand même ». Keep it for pure French or pure "
+        "English.",
         vram_mb=1200,
         languages="25 langues (dont FR), detection automatique",
+        languages_en="25 languages (incl. French), auto-detected",
         hf_repo="istupakov/parakeet-tdt-0.6b-v3-onnx",
         tier=TIER_FAST,
     ),
@@ -130,8 +162,12 @@ CATALOG: list[ModelSpec] = [
         blurb="Le plus precis du catalogue, et il garde tes anglicismes tels "
         "quels au lieu de les franciser. Le plus lent aussi. "
         "Quantifie en int8 pour tenir dans la VRAM.",
+        blurb_en="The most accurate in the catalogue, and it keeps your "
+        "English words as you said them instead of respelling them in French. "
+        "The slowest too. Quantised to int8 to fit in VRAM.",
         vram_mb=1400,
         languages="25 langues, langue source a preciser (fr par defaut)",
+        languages_en="25 languages, source language required (French by default)",
         hf_repo="istupakov/canary-1b-v2-onnx",
         tier=TIER_BEST,
         options={"quantization": "int8", "needs_language": True, "default_language": "fr"},
@@ -144,8 +180,12 @@ CATALOG: list[ModelSpec] = [
         blurb="Le defaut : rapide et juste en meme temps. Tient la phrase "
         "francaise la ou Parakeet part en anglais. Seul defaut connu, il "
         "ecrit parfois « Waouh » la ou tu as dit « Wow ».",
+        blurb_en="The default: fast and accurate at the same time. Holds the "
+        "French sentence together where Parakeet drifts into English. Its one "
+        "known flaw is writing « Waouh » where you said « Wow ».",
         vram_mb=1600,
         languages="99 langues, detection automatique",
+        languages_en="99 languages, auto-detected",
         hf_repo="mobiuslabsgmbh/faster-whisper-large-v3-turbo",
         tier=TIER_BALANCED,
         is_default=True,
@@ -158,8 +198,11 @@ CATALOG: list[ModelSpec] = [
         source="Kelno/whisper-large-v3-french-distil-dec16-ct2",
         blurb="Whisper large-v3 affine sur du francais, decodeur distille a "
         "16 couches. Meilleur sur les accents non hexagonaux.",
+        blurb_en="Whisper large-v3 fine-tuned on French, decoder distilled to "
+        "16 layers. Better on accents from outside mainland France.",
         vram_mb=1800,
         languages="francais",
+        languages_en="French",
         hf_repo="Kelno/whisper-large-v3-french-distil-dec16-ct2",
         tier=TIER_BALANCED,
         options={"compute_type": "int8_float16", "beam_size": 1},
@@ -172,8 +215,12 @@ CATALOG: list[ModelSpec] = [
         blurb="La reference Whisper, avec recherche en faisceau a 5. Garde tes "
         "anglicismes tels quels, comme Canary, et reste deux a trois fois "
         "plus rapide que lui. Plus lent que turbo pour un gain marginal.",
+        blurb_en="The Whisper reference, with beam search at 5. Keeps your "
+        "English words as they are, like Canary, and stays two to three times "
+        "faster than it. Slower than turbo for a marginal gain.",
         vram_mb=3100,
         languages="99 langues, detection automatique",
+        languages_en="99 languages, auto-detected",
         hf_repo="Systran/faster-whisper-large-v3",
         tier=TIER_BEST,
         options={"compute_type": "int8_float16", "beam_size": 5},
@@ -192,7 +239,7 @@ def _scan_local_models() -> list[ModelSpec]:
         return found
 
     for entry in sorted(MODELS_DIR.iterdir()):
-        if not entry.is_dir() or entry.name == "hub":
+        if not entry.is_dir() or entry.name in RESERVED_DIRS:
             continue
 
         if (entry / "model.bin").exists():
@@ -210,15 +257,24 @@ def _scan_local_models() -> list[ModelSpec]:
             except (OSError, json.JSONDecodeError):
                 log.warning("murmure.json illisible dans %s", entry)
 
+        # Une description fournie a la main dans une seule langue reste
+        # affichee telle quelle : mieux vaut la phrase de l'utilisateur dans sa
+        # langue que rien du tout. Seul le texte par defaut, qui est le notre,
+        # existe dans les deux.
+        described = "blurb" in meta or "blurb_en" in meta
         found.append(
             ModelSpec(
                 id=meta.get("id", f"local:{entry.name}"),
                 label=meta.get("label", entry.name),
                 engine=meta.get("engine", engine),
                 source=str(entry),
-                blurb=meta.get("blurb", "Modele local depose dans models/."),
+                blurb=meta.get("blurb", "" if described else "Modele local depose dans models/."),
+                blurb_en=meta.get(
+                    "blurb_en", "" if described else "Local model dropped in models/."
+                ),
                 vram_mb=int(meta.get("vram_mb", 0)),
                 languages=meta.get("languages", "?"),
+                languages_en=meta.get("languages_en", ""),
                 is_local=True,
                 options=meta.get("options", {}),
             )
