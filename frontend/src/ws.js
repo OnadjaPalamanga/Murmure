@@ -1,9 +1,35 @@
 // Client WebSocket vers le service Python. Se reconnecte tout seul : le service
 // peut redemarrer (changement de modele, mise a jour) sans qu'on relance l'UI.
+//
+// Le service exige un jeton de session : sans lui, n'importe quelle page web
+// ouverte dans un navigateur pourrait se connecter a ce meme port et piloter la
+// dictee — la politique d'origine unique ne s'applique pas aux WebSocket. Le
+// jeton est un fichier de `%APPDATA%\Murmure` que seul le cote Rust peut lire.
 
 import { getLanguage, t } from "./i18n.js";
 
 const URL = "ws://127.0.0.1:8756/ws";
+const SUBPROTOCOL = "murmure.v1";
+const TOKEN_PREFIX = "murmure.token.";
+
+// Dernier jeton obtenu. `buildAudioPlayer` en a besoin de facon synchrone pour
+// composer le `src` d'une balise <audio>, ou l'on ne peut pas poser d'en-tete.
+let sessionToken = "";
+
+export const authQuery = () =>
+  sessionToken ? `?token=${encodeURIComponent(sessionToken)}` : "";
+
+async function fetchToken() {
+  // Relu a CHAQUE tentative : le service en tire un neuf a chaque demarrage, et
+  // l'application peut se reconnecter a un service qui vient de redemarrer.
+  try {
+    sessionToken = await window.__TAURI__.core.invoke("session_token");
+  } catch {
+    // Le service n'a pas encore ecrit son jeton : la reconnexion reessaiera.
+    sessionToken = "";
+  }
+  return sessionToken;
+}
 
 export class Bus extends EventTarget {
   constructor() {
@@ -15,9 +41,15 @@ export class Bus extends EventTarget {
     this.connect();
   }
 
-  connect() {
+  async connect() {
+    const token = await fetchToken();
+    if (!token) {
+      this._scheduleReconnect();
+      return;
+    }
+
     try {
-      this.socket = new WebSocket(URL);
+      this.socket = new WebSocket(URL, [SUBPROTOCOL, TOKEN_PREFIX + token]);
     } catch {
       this._scheduleReconnect();
       return;

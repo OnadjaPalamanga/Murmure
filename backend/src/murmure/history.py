@@ -125,16 +125,30 @@ def _row_to_entry(row: sqlite3.Row) -> dict:
     return entry
 
 
+class HistoryClosed(RuntimeError):
+    """La base a ete fermee : le service s'arrete, plus rien ne doit y ecrire."""
+
+
 class History:
     def __init__(self, db_path: Path = HISTORY_DB) -> None:
         self.db_path = db_path
         self._lock = threading.Lock()
+        # Les transcriptions tournent sur des threads « daemon » qui survivent a
+        # l'appel de `close()`. Sans ce drapeau, l'un d'eux pouvait etre en plein
+        # `add()` au moment de l'arret et lever un `ProgrammingError` opaque, en
+        # perdant l'entree en cours. On refuse desormais proprement.
+        self._closed = False
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
         _migrate(self._conn)
         self._conn.commit()
+
+    def _live(self) -> None:
+        """A appeler sous le verrou, avant toute requete."""
+        if self._closed:
+            raise HistoryClosed("historique ferme")
 
     def add(
         self,
@@ -167,6 +181,7 @@ class History:
             "words": json.dumps(words, ensure_ascii=False) if words else None,
         }
         with self._lock:
+            self._live()
             self._conn.execute(
                 "INSERT INTO entries (id, created_at, text, model_id, device,"
                 " audio_seconds, latency_ms, audio_path, pinned, segments, words)"
@@ -188,6 +203,7 @@ class History:
     def search(self, query: str = "", *, limit: int = 100, offset: int = 0) -> list[dict]:
         query = query.strip()
         with self._lock:
+            self._live()
             if not query:
                 rows = self._conn.execute(
                     f"SELECT {_list_select()} FROM entries"
@@ -215,6 +231,7 @@ class History:
 
     def get(self, entry_id: str) -> dict | None:
         with self._lock:
+            self._live()
             row = self._conn.execute(
                 "SELECT * FROM entries WHERE id = ?", (entry_id,)
             ).fetchone()
@@ -222,11 +239,13 @@ class History:
 
     def update_text(self, entry_id: str, text: str) -> None:
         with self._lock:
+            self._live()
             self._conn.execute("UPDATE entries SET text = ? WHERE id = ?", (text, entry_id))
             self._conn.commit()
 
     def set_pinned(self, entry_id: str, pinned: bool) -> None:
         with self._lock:
+            self._live()
             self._conn.execute(
                 "UPDATE entries SET pinned = ? WHERE id = ?", (int(pinned), entry_id)
             )
@@ -234,6 +253,7 @@ class History:
 
     def delete(self, entry_id: str) -> None:
         with self._lock:
+            self._live()
             row = self._conn.execute(
                 "SELECT audio_path FROM entries WHERE id = ?", (entry_id,)
             ).fetchone()
@@ -249,11 +269,21 @@ class History:
 
     def stats(self) -> dict:
         with self._lock:
+            self._live()
             row = self._conn.execute(
                 "SELECT COUNT(*) n, COALESCE(SUM(audio_seconds), 0) secs FROM entries"
             ).fetchone()
         return {"count": row["n"], "total_audio_seconds": round(row["secs"], 1)}
 
     def close(self) -> None:
+        """Ferme la base. Idempotent, et sans surprise pour les threads en vol.
+
+        Le drapeau est pose SOUS le verrou : un `add()` deja engage termine son
+        ecriture, et tout appel ulterieur leve `HistoryClosed` — une erreur
+        nommee, que l'appelant peut distinguer d'une panne de disque.
+        """
         with self._lock:
+            if self._closed:
+                return
+            self._closed = True
             self._conn.close()

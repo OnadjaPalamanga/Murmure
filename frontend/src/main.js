@@ -1,4 +1,4 @@
-import { Bus, formatDate } from "./ws.js";
+import { Bus, authQuery, formatDate } from "./ws.js";
 import { applyAppearance, loadAppearance, saveAppearance } from "./appearance.js";
 import {
   LANGUAGES,
@@ -183,7 +183,11 @@ function buildAudioPlayer(entry) {
   const audio = document.createElement("audio");
   audio.className = "entry-audio";
   audio.preload = "metadata";
-  audio.src = `http://127.0.0.1:8756/audio/${encodeURIComponent(entry.id)}`;
+  // Le jeton passe par la chaine de requete : un `src` de balise <audio> ne
+  // permet pas d'ajouter un en-tete, et cette route est authentifiee comme
+  // toutes les autres.
+  audio.src =
+    `http://127.0.0.1:8756/audio/${encodeURIComponent(entry.id)}${authQuery()}`;
   audio.playbackRate = audioPlaybackRate;
 
   const toggle = document.createElement("button");
@@ -1036,6 +1040,11 @@ bus.on("export_done", (msg) => {
 });
 
 bus.on("final", () => refreshHistory());
+
+// Le plafond d'enregistrement a mordu. Affiché longuement : une transcription
+// qui s'arrête au milieu d'une phrase sans explication est indéchiffrable.
+bus.on("truncated", (msg) => toast(fromService(msg), 8000));
+
 bus.on("error", (msg) => {
   hideProgress();
   diarizeBusy = false;
@@ -1119,3 +1128,15 @@ invoke("hotkey_status").then((error) => {
   nodeFor("hotkey").style.borderColor = "var(--danger)";
   toast(hotkeyMessage(error), 9000);
 });
+
+// Meme raison pour le service : quand il n'a pas pu demarrer, l'application
+// affichait « hors ligne » indefiniment sans que rien n'en donne la cause —
+// l'echec ne partait que vers une console qui n'existe pas.
+invoke("service_status")
+  .then((failure) => {
+    if (!failure) return;
+    toast(t(`service.${failure.code}`, { detail: failure.detail }), 15000);
+  })
+  .catch(() => {
+    /* commande absente : binaire plus ancien, rien a signaler */
+  });

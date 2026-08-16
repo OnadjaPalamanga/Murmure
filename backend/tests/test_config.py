@@ -6,11 +6,12 @@ tout ce qu'un humain — ou une version anterieure — peut y laisser.
 
 from __future__ import annotations
 
+from dataclasses import fields
 from pathlib import Path
 
 import pytest
 
-from murmure.config import ConfigStore, Settings, apply_text_rules
+from murmure.config import VALIDATORS, ConfigStore, Settings, apply_text_rules, validate
 from murmure.models import CATALOG, default_model_id
 
 
@@ -79,6 +80,41 @@ class TestPersistance:
         store.update({"replacements": {"cad": "c'est-a-dire"}})
         assert ConfigStore(store.path).settings.replacements == {"cad": "c'est-a-dire"}
 
+    def test_un_saut_de_ligne_ne_fait_plus_perdre_la_configuration(
+        self, tmp_path: Path
+    ) -> None:
+        """Le defaut qui effacait toute la configuration.
+
+        Un saut de ligne ecrit tel quel produisait un TOML invalide ; au
+        demarrage suivant, `_load` attrapait l'erreur et repartait des defauts.
+        **Tous** les reglages disparaissaient a cause d'un seul.
+
+        Deux couches s'y opposent maintenant, et ce test verifie la seconde :
+        la validation refuse la valeur fautive (c'est la premiere), mais meme
+        forcee sur le disque, elle est desormais echappee — le fichier reste
+        lisible, et les autres reglages survivent. C'est cela qui comptait.
+        """
+        path = tmp_path / "config.toml"
+        store = ConfigStore(path=path)
+        # Forcee sans passer par `update()`, qui la refuserait en amont.
+        store.settings.replacements = {"foo": "un\ndeux\ttrois"}
+        store.settings.hotkey = "Ctrl+Alt+D"
+        store.save()
+
+        relu = ConfigStore(path=path)
+        # La valeur fautive est ecartee, seule.
+        assert relu.settings.replacements == {}
+        # Et le reste du fichier est intact — avant, il partait avec elle.
+        assert relu.settings.hotkey == "Ctrl+Alt+D"
+
+    def test_un_fichier_illisible_est_conserve(self, tmp_path: Path) -> None:
+        path = tmp_path / "config.toml"
+        path.write_text('hotkey = "Ctrl+\n', encoding="utf-8")
+        ConfigStore(path=path)
+        # Mis de cote plutot qu'ecrase : la perte reste visible et recuperable.
+        assert list(tmp_path.glob("config.*.corrompu"))
+        assert not path.exists()
+
     def test_les_guillemets_sont_echappes(self, store: ConfigStore) -> None:
         """Sans echappement, une valeur contenant un guillemet produirait un
         TOML invalide et la configuration entiere repartirait aux defauts."""
@@ -135,3 +171,93 @@ class TestMiseEnForme:
 
     def test_le_point_final_est_garde_par_defaut(self) -> None:
         assert apply_text_rules("une phrase.", Settings()) == "une phrase."
+
+
+class TestValidation:
+    """Rien d'invalide n'atteint le disque.
+
+    Une valeur du mauvais type etait ecrite telle quelle, relue au demarrage
+    suivant, et cassait chaque transcription : un `replacements` devenu liste
+    levait une `AttributeError` a chaque dictee, et redemarrer n'y changeait
+    rien puisque la valeur etait dans le fichier.
+    """
+
+    def test_chaque_reglage_a_son_validateur(self) -> None:
+        # Un champ oublie ici serait accepte sans aucun controle.
+        declared = {f.name for f in fields(Settings)}
+        assert declared == set(VALIDATORS), declared ^ set(VALIDATORS)
+
+    def test_les_defauts_passent_leur_propre_validation(self) -> None:
+        # Un validateur trop strict rendrait l'application impossible a demarrer.
+        kept, rejected = validate(Settings().to_dict())
+        assert rejected == []
+        assert set(kept) == {f.name for f in fields(Settings)}
+
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("replacements", ["a", "b"]),
+            ("replacements", {"a": 3}),
+            ("replacements", {"a": "b\nc"}),
+            ("preroll_ms", -5),
+            ("preroll_ms", 99_999),
+            ("preroll_ms", "400"),
+            ("preroll_ms", True),
+            ("input_device", "premier"),
+            ("dictation_mode", "nawak"),
+            ("hotkey_mode", "maintenir"),
+            ("polish_mode", ""),
+            ("prefer_gpu", "oui"),
+            ("hotkey", "   "),
+            ("model_id", ""),
+            ("diarize_threshold", 12),
+            ("diarize_speakers", -1),
+            ("model_overrides", {"x": "pas une table"}),
+        ],
+    )
+    def test_une_valeur_invalide_est_refusee(self, key, value) -> None:
+        kept, rejected = validate({key: value})
+        assert kept == {}
+        assert len(rejected) == 1 and rejected[0].startswith(key)
+
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("replacements", {"stp": "s'il te plaît"}),
+            ("preroll_ms", 0),
+            ("preroll_ms", 5_000),
+            ("input_device", None),
+            ("input_device", 3),
+            ("dictation_mode", "continu"),
+            ("prefer_gpu", False),
+            ("diarize_threshold", 0.6),
+            ("mic_keepalive_s", 90),
+        ],
+    )
+    def test_une_valeur_correcte_passe(self, key, value) -> None:
+        kept, rejected = validate({key: value})
+        assert rejected == []
+        assert key in kept
+
+    def test_le_valide_passe_meme_a_cote_de_l_invalide(self, store: ConfigStore) -> None:
+        store.update({"hotkey": "Ctrl+Alt+D", "preroll_ms": -1})
+        assert store.settings.hotkey == "Ctrl+Alt+D"
+        assert store.settings.preroll_ms == 400
+
+    def test_rien_d_invalide_n_est_ecrit(self, store: ConfigStore) -> None:
+        store.update({"replacements": ["a", "b"]})
+        assert store.settings.replacements == {}
+        relu = ConfigStore(path=store.path)
+        assert relu.settings.replacements == {}
+
+    def test_un_fichier_edite_a_la_main_est_filtre(self, tmp_path: Path) -> None:
+        path = tmp_path / "config.toml"
+        path.write_text(
+            'hotkey = "Ctrl+Alt+D"\npreroll_ms = 99999\ndictation_mode = "nawak"\n',
+            encoding="utf-8",
+        )
+        settings = ConfigStore(path=path).settings
+        # Ce qui est bon est garde, ce qui ne l'est pas revient au defaut.
+        assert settings.hotkey == "Ctrl+Alt+D"
+        assert settings.preroll_ms == 400
+        assert settings.dictation_mode == "differe"

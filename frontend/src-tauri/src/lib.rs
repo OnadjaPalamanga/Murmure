@@ -101,8 +101,34 @@ fn find_service_python() -> Option<(PathBuf, PathBuf)> {
 
 /// Revision des reglages attendue du service. Doit valoir `SETTINGS_REVISION`
 /// dans `backend/src/murmure/server.py` : les deux montent ensemble des qu'un
-/// reglage est ajoute, retire ou change de sens.
-const SETTINGS_REVISION: u32 = 5;
+/// reglage est ajoute, retire ou change de sens. La CI verifie la concordance.
+const SETTINGS_REVISION: u32 = 6;
+
+/// Jeton de session depose par le service dans `%APPDATA%\Murmure`.
+/// C'est ce qui distingue l'application d'une page web quelconque : le WebSocket
+/// du service ne repond qu'a qui peut lire ce fichier. Voir `backend/.../auth.py`.
+fn token_path() -> Option<PathBuf> {
+    std::env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .map(|dir| dir.join("Murmure").join("session.token"))
+}
+
+fn read_token() -> Option<String> {
+    let raw = std::fs::read_to_string(token_path()?).ok()?;
+    let token = raw.trim().to_string();
+    if token.is_empty() {
+        None
+    } else {
+        Some(token)
+    }
+}
+
+/// L'interface demande le jeton a chaque tentative de connexion : le service
+/// peut avoir redemarre, et il en tire un neuf a chaque fois.
+#[tauri::command]
+fn session_token() -> Result<String, String> {
+    read_token().ok_or_else(|| "Jeton de session introuvable".to_string())
+}
 
 /// Ce que repond le service sur le port 8756, s'il repond.
 enum ServiceState {
@@ -116,6 +142,9 @@ enum ServiceState {
     /// backend qui ignore la moitie de ses reglages, sans qu'aucune erreur ne
     /// le dise — les menus sont juste vides.
     Stale,
+    /// Quelque chose repond sur 8756, mais ce n'est pas Murmure. On ne lui
+    /// envoie rien et on ne demarre rien : le port ne nous appartient pas.
+    Foreign,
 }
 
 /// Interroge `/health` en HTTP brut. Un client HTTP complet serait
@@ -145,6 +174,14 @@ fn probe_service() -> ServiceState {
         return ServiceState::Current;
     }
 
+    // Une reponse qui ne porte pas notre signature n'est pas la notre. Ce test
+    // manquait : n'importe quel service tiers occupant le port 8756 repondait
+    // quelque chose d'illisible, tombait dans `Stale`, et se voyait poster un
+    // `/shutdown` qu'il n'avait rien demande.
+    if !body.contains("\"ok\":true") || !body.contains("\"version\"") {
+        return ServiceState::Foreign;
+    }
+
     // Le JSON est produit par nous et tient sur une ligne : chercher la cle
     // suffit, et evite d'embarquer serde pour un seul entier.
     let found = body
@@ -167,15 +204,27 @@ fn probe_service() -> ServiceState {
 
 /// Termine le service qui occupe le port sans etre a la bonne revision.
 /// On ne devine pas son PID : le service se coupe lui-meme sur `/shutdown`.
+///
+/// Le jeton est joint : `/shutdown` l'exige desormais. Le service perime a
+/// ecrit le sien en demarrant, c'est donc celui que le fichier contient.
+/// Rend `true` si le port a bien ete rendu.
 #[cfg(windows)]
-fn stop_stale_service() {
+fn stop_stale_service() -> bool {
     use std::io::Write;
 
     let addr = "127.0.0.1:8756".parse().unwrap();
     let timeout = std::time::Duration::from_millis(600);
+    let Some(token) = read_token() else {
+        eprintln!("Service perime sur 8756, mais aucun jeton pour l'arreter.");
+        return false;
+    };
+
     if let Ok(mut stream) = std::net::TcpStream::connect_timeout(&addr, timeout) {
         let _ = stream.set_write_timeout(Some(timeout));
-        let _ = stream.write_all(b"POST /shutdown HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n");
+        let request = format!(
+            "POST /shutdown HTTP/1.0\r\nHost: 127.0.0.1\r\nX-Murmure-Token: {token}\r\n\r\n"
+        );
+        let _ = stream.write_all(request.as_bytes());
     }
     // Laisser au processus le temps de rendre le port avant de le reprendre.
     for _ in 0..20 {
@@ -183,26 +232,74 @@ fn stop_stale_service() {
         if std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(150))
             .is_err()
         {
-            return;
+            return true;
         }
     }
-    eprintln!("Le service perime n'a pas rendu le port 8756.");
+    false
 }
 
 #[cfg(not(windows))]
-fn stop_stale_service() {}
+fn stop_stale_service() -> bool {
+    false
+}
 
-fn spawn_service() -> Option<Child> {
+/// Ce qui empeche le service de demarrer, sous une forme que l'interface peut
+/// traduire. Un `eprintln!` ne va nulle part dans une application fenetree :
+/// l'utilisateur voyait « hors ligne » pour toujours, sans la moindre piste.
+#[derive(Clone, Debug, serde::Serialize)]
+struct ServiceError {
+    code: &'static str,
+    detail: String,
+}
+
+struct ServiceStatus(Mutex<Option<ServiceError>>);
+
+/// L'UI interroge cet etat au chargement, comme pour le raccourci.
+#[tauri::command]
+fn service_status(app: AppHandle) -> Result<Option<ServiceError>, String> {
+    let state = app.state::<ServiceStatus>();
+    let status = state.0.lock().map_err(|e| e.to_string())?;
+    Ok(status.clone())
+}
+
+fn spawn_service() -> (Option<Child>, Option<ServiceError>) {
     match probe_service() {
-        ServiceState::Current => return None,
+        ServiceState::Current => return (None, None),
+        ServiceState::Foreign => {
+            // Ce n'est pas notre service : on ne lui parle pas, et on ne prend
+            // pas le port. Mieux vaut le dire que de tenter quoi que ce soit.
+            return (
+                None,
+                Some(ServiceError {
+                    code: "port_taken",
+                    detail: "8756".into(),
+                }),
+            );
+        }
         ServiceState::Stale => {
             eprintln!("Service perime sur le port 8756 : arret avant de relancer.");
-            stop_stale_service();
+            if !stop_stale_service() {
+                return (
+                    None,
+                    Some(ServiceError {
+                        code: "stale_service",
+                        detail: "8756".into(),
+                    }),
+                );
+            }
         }
         ServiceState::Absent => {}
     }
 
-    let (python, cwd) = find_service_python()?;
+    let Some((python, cwd)) = find_service_python() else {
+        return (
+            None,
+            Some(ServiceError {
+                code: "python_missing",
+                detail: "backend/.venv/Scripts/pythonw.exe".into(),
+            }),
+        );
+    };
     let mut command = std::process::Command::new(python);
     command.arg("-m").arg("murmure").current_dir(cwd);
 
@@ -214,10 +311,16 @@ fn spawn_service() -> Option<Child> {
     }
 
     match command.spawn() {
-        Ok(child) => Some(child),
+        Ok(child) => (Some(child), None),
         Err(err) => {
             eprintln!("Service Python non demarre : {err}");
-            None
+            (
+                None,
+                Some(ServiceError {
+                    code: "spawn_failed",
+                    detail: err.to_string(),
+                }),
+            )
         }
     }
 }
@@ -503,6 +606,8 @@ pub fn run() {
             set_hotkey,
             hotkey_status,
             set_tray_labels,
+            session_token,
+            service_status,
             type_text
         ])
         .setup(|app| {
@@ -513,7 +618,9 @@ pub fn run() {
             // s'initialisent. Une seconde instance sondait donc le port avant
             // de mourir — inutile, et 600 ms de latence sur un lancement dont
             // on sait deja qu'il n'aboutira pas.
-            app.manage(ServiceProcess(Mutex::new(spawn_service())));
+            let (child, failure) = spawn_service();
+            app.manage(ServiceProcess(Mutex::new(child)));
+            app.manage(ServiceStatus(Mutex::new(failure)));
 
             build_tray(&handle)?;
 

@@ -79,27 +79,61 @@ class Recorder:
         keepalive_s: float = KEEPALIVE_S,
         on_level=None,
         on_block=None,
+        on_truncated=None,
     ) -> None:
         self.device = device
-        self.preroll_ms = preroll_ms
         self.keepalive_s = keepalive_s
         self.on_level = on_level
         # Consommateur temps reel des blocs enregistres (dictee continue). Doit
         # se contenter d'empiler : il est appele sur le thread audio.
         self.on_block = on_block
+        # Prevenu quand `MAX_RECORD_S` a mordu. Sans lui, la dictee etait
+        # tronquee en silence et l'utilisateur decouvrait une transcription qui
+        # s'arretait au milieu d'une phrase, sans rien pour l'expliquer.
+        self.on_truncated = on_truncated
 
         self._lock = threading.RLock()
         self._stream: sd.InputStream | None = None
         self._blocksize = int(SAMPLE_RATE * BLOCK_MS / 1000)
 
-        preroll_blocks = max(1, int(preroll_ms / BLOCK_MS))
-        self._preroll: deque[np.ndarray] = deque(maxlen=preroll_blocks)
+        self._preroll: deque[np.ndarray] = deque(maxlen=self._preroll_blocks(preroll_ms))
+        self._preroll_ms = preroll_ms
         self._captured: list[np.ndarray] = []
 
         self.is_recording = False
         self._started_at = 0.0
         self._last_use = 0.0
         self._idle_timer: threading.Timer | None = None
+
+    # ------------------------------------------------------- pre-roll
+
+    @staticmethod
+    def _preroll_blocks(preroll_ms: float) -> int:
+        return max(1, int(preroll_ms / BLOCK_MS))
+
+    @property
+    def preroll_ms(self) -> int:
+        return self._preroll_ms
+
+    @preroll_ms.setter
+    def preroll_ms(self, value: int) -> None:
+        """Redimensionne VRAIMENT le tampon circulaire.
+
+        C'etait un simple attribut, que plus rien ne relisait apres la
+        construction : le `maxlen` de la deque restait celui du demarrage, et
+        deplacer le curseur dans les reglages n'avait aucun effet jusqu'au
+        redemarrage du service. Le reglage etait ecrit, affiche, persiste, et
+        ne faisait rien.
+        """
+        with self._lock:
+            self._preroll_ms = value
+            wanted = self._preroll_blocks(value)
+            if self._preroll.maxlen == wanted:
+                return
+            # Les blocs deja capturés sont conserves : la deque n'en garde que
+            # les plus recents si elle retrecit, ce qui est exactement le sens
+            # d'un pre-roll plus court.
+            self._preroll = deque(self._preroll, maxlen=wanted)
 
     # ---------------------------------------------------------------- flux
 
@@ -217,7 +251,23 @@ class Recorder:
         if not blocks:
             return np.zeros(0, dtype=np.float32)
         audio = np.concatenate(blocks).astype(np.float32, copy=False)
-        return audio[: int(MAX_RECORD_S * SAMPLE_RATE)]
+
+        ceiling = int(MAX_RECORD_S * SAMPLE_RATE)
+        if len(audio) > ceiling:
+            lost_s = (len(audio) - ceiling) / SAMPLE_RATE
+            log.warning(
+                "Dictee tronquee a %.0f s : %.0f s ecartees", MAX_RECORD_S, lost_s
+            )
+            # Le dire, et pas seulement au journal : une transcription qui
+            # s'arrete au milieu d'une phrase sans explication est le genre de
+            # defaut qu'on met des semaines a comprendre.
+            if self.on_truncated is not None:
+                try:
+                    self.on_truncated(MAX_RECORD_S, lost_s)
+                except Exception:  # noqa: BLE001
+                    log.debug("Hook on_truncated en erreur", exc_info=True)
+            audio = audio[:ceiling]
+        return audio
 
     def cancel(self) -> None:
         with self._lock:

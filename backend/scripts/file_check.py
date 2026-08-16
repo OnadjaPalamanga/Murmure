@@ -7,15 +7,34 @@ from __future__ import annotations
 
 import asyncio
 import json
+import pathlib
 import sys
 
 import websockets
 
 URL = "ws://127.0.0.1:8756/ws"
 
+# Le service exige un jeton de session (voir murmure/auth.py). Ce script tourne
+# sous la meme session que l'utilisateur : il peut donc lire le fichier, et il
+# en a le droit. Une page web, elle, n'atteint pas le disque.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
+from murmure.auth import SUBPROTOCOL, TOKEN_PREFIX  # noqa: E402
+from murmure.paths import TOKEN_FILE  # noqa: E402
+
+
+def _handshake() -> dict:
+    try:
+        token = TOKEN_FILE.read_text(encoding="ascii").strip()
+    except OSError:
+        raise SystemExit(
+            f"Jeton de session introuvable ({TOKEN_FILE}). Le service tourne-t-il ?"
+        ) from None
+    return {"subprotocols": [SUBPROTOCOL, TOKEN_PREFIX + token]}
+
+
 
 async def main(paths: list[str]) -> int:
-    async with websockets.connect(URL, max_size=8 * 1024 * 1024) as ws:
+    async with websockets.connect(URL, max_size=8 * 1024 * 1024, **_handshake()) as ws:
         snapshot = json.loads(await ws.recv())
         print(f"ffmpeg detecte  : {snapshot['has_ffmpeg']}")
         print(f"formats audio   : {', '.join(snapshot['media_extensions']['audio'])}")

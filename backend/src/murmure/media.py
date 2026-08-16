@@ -32,10 +32,15 @@ class MediaError(RuntimeError):
 
 
 def find_ffmpeg() -> str | None:
-    """ffmpeg fourni avec le projet, sinon celui du PATH."""
-    bundled = PROJECT_ROOT / "bin" / "ffmpeg.exe"
-    if bundled.exists():
-        return str(bundled)
+    """ffmpeg fourni avec le projet, sinon celui du PATH.
+
+    `PROJECT_ROOT` vaut None hors installation editable : il n'y a alors pas de
+    dossier `bin/` du projet ou regarder, et seul le PATH repond.
+    """
+    if PROJECT_ROOT is not None:
+        bundled = PROJECT_ROOT / "bin" / "ffmpeg.exe"
+        if bundled.exists():
+            return str(bundled)
     return shutil.which("ffmpeg")
 
 

@@ -2,14 +2,24 @@
 
 Le fichier ne contient que ce qui differe du defaut : il reste lisible et
 modifiable a la main, et un reglage renomme ne casse pas la configuration.
+
+**Tout ce qui entre est valide.** Le fichier s'edite a la main, et les reglages
+arrivent aussi par le WebSocket : dans les deux cas la valeur peut etre du
+mauvais type. Sans controle, elle etait ecrite telle quelle, relue au demarrage
+suivant, et cassait chaque transcription — un `replacements` devenu liste levait
+une `AttributeError` a chaque dictee, et redemarrer n'y changeait rien puisque la
+valeur etait dans le fichier. Une valeur refusee est ignoree avec un message ;
+elle n'est jamais persistee.
 """
 
 from __future__ import annotations
 
 import logging
+import shutil
 import threading
 import tomllib
 from dataclasses import asdict, dataclass, field, fields
+from datetime import datetime
 from typing import Any
 
 from .diarize import DEFAULT_THRESHOLD as DIARIZE_THRESHOLD
@@ -113,6 +123,131 @@ class Settings:
         return asdict(self)
 
 
+class InvalidSetting(ValueError):
+    """Valeur refusee : mauvais type, hors bornes, ou hors du jeu autorise."""
+
+
+def _boolean(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    raise InvalidSetting("attendu : vrai ou faux")
+
+
+def _text(*, allow_empty: bool = True) -> Any:
+    def check(value: Any) -> str:
+        if not isinstance(value, str):
+            raise InvalidSetting("attendu : du texte")
+        # Les caracteres de controle ne survivent pas a l'ecriture TOML et
+        # n'ont aucun sens dans un raccourci ou un identifiant de modele.
+        if any(ch < " " for ch in value):
+            raise InvalidSetting("caractere de controle interdit")
+        if not allow_empty and not value.strip():
+            raise InvalidSetting("valeur vide")
+        return value
+
+    return check
+
+
+def _one_of(*allowed: str) -> Any:
+    def check(value: Any) -> str:
+        if value not in allowed:
+            raise InvalidSetting(f"attendu : {' | '.join(allowed)}")
+        return value
+
+    return check
+
+
+def _whole(low: int, high: int, *, none_ok: bool = False) -> Any:
+    def check(value: Any) -> int | None:
+        if value is None and none_ok:
+            return None
+        # `bool` est un `int` en Python : sans ce test, `True` deviendrait 1.
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise InvalidSetting("attendu : un entier")
+        if not low <= value <= high:
+            raise InvalidSetting(f"attendu : entre {low} et {high}")
+        return value
+
+    return check
+
+
+def _decimal(low: float, high: float) -> Any:
+    def check(value: Any) -> float:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise InvalidSetting("attendu : un nombre")
+        if not low <= float(value) <= high:
+            raise InvalidSetting(f"attendu : entre {low:g} et {high:g}")
+        return float(value)
+
+    return check
+
+
+def _text_table(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        raise InvalidSetting("attendu : une table de texte")
+    checked = _text()
+    return {checked(k): checked(v) for k, v in value.items()}
+
+
+def _nested_table(value: Any) -> dict[str, dict]:
+    if not isinstance(value, dict) or not all(isinstance(v, dict) for v in value.values()):
+        raise InvalidSetting("attendu : une table de tables")
+    return value
+
+
+# Un validateur par reglage. Un champ absent de cette table serait accepte sans
+# controle : le test `test_chaque_reglage_est_valide` interdit l'oubli.
+VALIDATORS: dict[str, Any] = {
+    "model_id": _text(allow_empty=False),
+    "prefer_gpu": _boolean,
+    "preload_on_start": _boolean,
+    "language": _text(),
+    "input_device": _whole(0, 512, none_ok=True),
+    "preroll_ms": _whole(0, 5_000),
+    "mic_keepalive_s": _decimal(0, 3_600),
+    "keep_audio": _boolean,
+    "hotkey": _text(allow_empty=False),
+    "hotkey_mode": _one_of("hold", "toggle"),
+    "copy_to_clipboard": _boolean,
+    "show_review_window": _boolean,
+    "play_sounds": _boolean,
+    "dictation_mode": _one_of("differe", "continu"),
+    "inject_at_cursor": _boolean,
+    "phrase_silence_ms": _whole(100, 5_000),
+    "max_phrase_s": _decimal(1, 120),
+    "polish_mode": _one_of("moteur", "aucun"),
+    "polish_max_s": _decimal(1, 60),
+    "preview_ms": _whole(0, 5_000),
+    "timestamps_files": _boolean,
+    "diarize_files": _boolean,
+    "diarize_speakers": _whole(0, 32),
+    "diarize_threshold": _decimal(0, 2),
+    "trim_trailing_period": _boolean,
+    "replacements": _text_table,
+    "model_overrides": _nested_table,
+}
+
+
+def validate(changes: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    """Trie les changements en (retenus, refuses).
+
+    Les inconnus sont ecartes comme avant — un reglage disparu entre deux
+    versions ne doit pas empecher les autres de s'appliquer.
+    """
+    kept: dict[str, Any] = {}
+    rejected: list[str] = []
+    for key, value in changes.items():
+        check = VALIDATORS.get(key)
+        if check is None:
+            rejected.append(f"{key} (inconnu)")
+            continue
+        try:
+            kept[key] = check(value)
+        except InvalidSetting as exc:
+            rejected.append(f"{key} ({exc})")
+    return kept, rejected
+
+
 def apply_text_rules(text: str, settings: Settings) -> str:
     """Normalise les espaces, applique les remplacements et le rognage final.
 
@@ -142,21 +277,37 @@ class ConfigStore:
             with self.path.open("rb") as fh:
                 raw = tomllib.load(fh)
         except (OSError, tomllib.TOMLDecodeError) as exc:
-            log.warning("config.toml illisible (%s), retour aux defauts", exc)
+            # Repartir des defauts en silence effacait sans trace tout ce que
+            # l'utilisateur avait regle. Le fichier est mis de cote sous un nom
+            # date : la perte reste visible, et surtout recuperable.
+            log.warning("config.toml illisible (%s)", exc)
+            self._quarantine()
             return Settings()
 
-        known = {f.name for f in fields(Settings)}
-        unknown = set(raw) - known
-        if unknown:
-            log.info("Reglages ignores (inconnus) : %s", ", ".join(sorted(unknown)))
-        return Settings(**{k: v for k, v in raw.items() if k in known})
+        kept, rejected = validate(raw)
+        if rejected:
+            log.warning("Reglages ignores a la lecture : %s", ", ".join(sorted(rejected)))
+        return Settings(**kept)
+
+    def _quarantine(self) -> None:
+        """Ecarte un fichier illisible au lieu de l'ecraser au prochain `save()`."""
+        spoilt = self.path.with_suffix(f".{datetime.now():%Y-%m-%d_%H-%M-%S}.corrompu")
+        try:
+            shutil.move(str(self.path), str(spoilt))
+            log.warning("Ancienne configuration conservee sous %s", spoilt.name)
+        except OSError:
+            log.warning("Configuration illisible non conservee", exc_info=True)
 
     def update(self, changes: dict[str, Any]) -> Settings:
+        """Applique ce qui est valide. Rien d'invalide n'atteint le disque."""
+        kept, rejected = validate(changes)
+        if rejected:
+            log.warning("Reglages refuses : %s", ", ".join(sorted(rejected)))
+        if not kept:
+            return self.settings
         with self._lock:
-            known = {f.name for f in fields(Settings)}
-            for key, value in changes.items():
-                if key in known:
-                    setattr(self.settings, key, value)
+            for key, value in kept.items():
+                setattr(self.settings, key, value)
             self.save()
         return self.settings
 
@@ -182,14 +333,36 @@ class ConfigStore:
             )
 
 
+# Echappements exiges par une chaine TOML de base. Le saut de ligne est le cas
+# qui mordait : ecrit tel quel, il produisait un fichier que `tomllib` refusait
+# au demarrage suivant, et TOUS les reglages repartaient aux defauts.
+_TOML_ESCAPES = {
+    "\\": "\\\\",
+    '"': '\\"',
+    "\b": "\\b",
+    "\t": "\\t",
+    "\n": "\\n",
+    "\f": "\\f",
+    "\r": "\\r",
+}
+
+
 def _render_value(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     if value is None:
         return '""'
     if isinstance(value, str):
-        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-        return f'"{escaped}"'
+        out = []
+        for ch in value:
+            if ch in _TOML_ESCAPES:
+                out.append(_TOML_ESCAPES[ch])
+            elif ch < " " or ch == "\x7f":
+                # Les autres caracteres de controle n'ont pas de forme courte.
+                out.append(f"\\u{ord(ch):04X}")
+            else:
+                out.append(ch)
+        return '"' + "".join(out) + '"'
     return str(value)
 
 

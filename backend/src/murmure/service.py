@@ -29,7 +29,7 @@ from .engines.base import SAMPLE_RATE, Engine
 from .exports import FORMATS as EXPORT_FORMATS
 from .exports import TIMED_FORMATS, line_ending
 from .exports import render as render_export
-from .history import History
+from .history import History, HistoryClosed
 from .media import AUDIO_EXT, VIDEO_EXT, find_ffmpeg, load_audio
 from .models import build_engine, get_spec, list_models, resolve_spec
 from .paths import AUDIO_DIR, MODELS_DIR
@@ -58,6 +58,58 @@ def _diarize_message(key: str, params: dict | None) -> str:
             f" / {total} Mo" if total else ""
         )
     return "Identification des locuteurs…"
+
+
+# Dossiers ou un export n'a aucune raison d'atterrir, et ou un fichier depose
+# s'execute ou se charge tout seul. Compares sur le chemin resolu, en minuscules.
+_FORBIDDEN_PARTS = (
+    "start menu",
+    "startup",
+    "démarrage",
+    "system32",
+    "syswow64",
+    "windows\\tasks",
+)
+
+
+def _refuse_destination(destination: str, fmt: str) -> str | None:
+    """Rend la raison du refus, ou None si le chemin est acceptable.
+
+    Trois regles, qui decrivent toutes ce qu'un dialogue « Enregistrer sous »
+    produit necessairement : un chemin absolu, dont le dossier parent existe
+    deja, et dont l'extension est celle du format choisi.
+    """
+    raw = (destination or "").strip()
+    if not raw:
+        return "aucun chemin"
+
+    try:
+        path = Path(raw).expanduser()
+    except (OSError, ValueError):
+        return "chemin illisible"
+
+    if not path.is_absolute():
+        return "chemin relatif"
+
+    # `resolve` ecrase les « .. » : sans lui, un chemin passant par un dossier
+    # anodin pourrait ressortir dans un dossier interdit.
+    resolved = path.resolve()
+
+    if resolved.suffix.lower().lstrip(".") != fmt:
+        return f"extension attendue .{fmt}"
+
+    lowered = str(resolved).lower().replace("/", "\\")
+    for part in _FORBIDDEN_PARTS:
+        if part in lowered:
+            return "dossier système"
+
+    # Le dossier parent doit EXISTER. C'etait `mkdir(parents=True)` : creer une
+    # arborescence entiere n'est jamais ce qu'un dialogue natif demande, et
+    # c'est ce qui permettait de viser n'importe ou sur le disque.
+    if not resolved.parent.is_dir():
+        return "dossier introuvable"
+
+    return None
 
 
 def _echoes_prompt(text: str, prompt: str | None) -> bool:
@@ -102,6 +154,7 @@ class Service:
             preroll_ms=self.config.settings.preroll_ms,
             keepalive_s=self.config.settings.mic_keepalive_s,
             on_level=self._on_level,
+            on_truncated=self._on_truncated,
         )
         self.state = "idle"
         self._level_throttle = 0.0
@@ -151,6 +204,17 @@ class Service:
     def _set_state(self, state: str, **extra: Any) -> None:
         self.state = state
         self.emit({"type": "state", "state": state, **extra})
+
+    def _on_truncated(self, limit_s: float, lost_s: float) -> None:
+        """La dictee a atteint le plafond d'enregistrement : le dire tout de suite."""
+        self.emit(
+            {
+                "type": "truncated",
+                "key": "record_truncated",
+                "params": {"minutes": round(limit_s / 60), "lost_seconds": round(lost_s)},
+                "message": f"Enregistrement tronqué à {limit_s / 60:.0f} min.",
+            }
+        )
 
     def _on_level(self, peak: float) -> None:
         # ~25 images/s suffisent pour la forme d'onde ; au-dela on sature le WS.
@@ -356,6 +420,11 @@ class Service:
                     "device": result.device,
                 }
             )
+        except HistoryClosed:
+            # Le service s'arrete pendant qu'un thread « daemon » finissait
+            # son travail. Ce n'est pas une panne : rien a signaler a une
+            # interface qui est en train de disparaitre.
+            log.info("Arret en cours : resultat non enregistre")
         except Exception as exc:  # noqa: BLE001
             log.exception("Echec de la transcription")
             self._set_state("idle")
@@ -576,6 +645,11 @@ class Service:
                     "streamed": True,
                 }
             )
+        except HistoryClosed:
+            # Le service s'arrete pendant qu'un thread « daemon » finissait
+            # son travail. Ce n'est pas une panne : rien a signaler a une
+            # interface qui est en train de disparaitre.
+            log.info("Arret en cours : resultat non enregistre")
         except Exception as exc:  # noqa: BLE001
             log.exception("Fin de dictee continue en echec")
             self._set_state("idle")
@@ -688,6 +762,9 @@ class Service:
                         "speakers": speakers,
                     }
                 )
+            except HistoryClosed:
+                log.info("Arret en cours : lot de fichiers interrompu")
+                return
             except Exception as exc:  # noqa: BLE001
                 log.exception("Echec sur le fichier %s", path)
                 self.emit(
@@ -856,9 +933,12 @@ class Service:
         """Ecrit une entree d'historique en sous-titres, en JSON ou en texte.
 
         Le chemin vient d'un dialogue « Enregistrer sous » natif : c'est
-        l'utilisateur qui l'a designe. On ecrit donc ou il a dit, sans chercher
-        a corriger son choix — mais jamais sans lui : rien ici n'invente un
-        emplacement.
+        l'utilisateur qui l'a designe. On ecrit donc ou il a dit — mais on
+        verifie que le chemin ressemble bien a ce qu'un dialogue produit. Sans
+        ce controle, la commande etait une primitive d'ecriture arbitraire :
+        `history_update` mettait le contenu voulu dans une entree, `export_entry`
+        l'ecrivait dans le dossier Demarrage, et c'etait une execution de code au
+        demarrage suivant.
 
         Aucune exception ne remonte : un disque plein ou un dossier devenu
         inaccessible se dit dans l'interface, il ne casse pas la connexion.
@@ -870,6 +950,16 @@ class Service:
                 "key": "export_bad_format",
                 "params": {"format": fmt},
                 "message": f"Format d'export inconnu : {fmt}",
+            }
+
+        refusal = _refuse_destination(destination, fmt)
+        if refusal is not None:
+            log.warning("Export refuse vers %s : %s", destination, refusal)
+            return {
+                "ok": False,
+                "key": "export_bad_path",
+                "params": {"detail": refusal},
+                "message": f"Emplacement refusé : {refusal}",
             }
 
         entry = self.history.get(entry_id)
@@ -907,9 +997,8 @@ class Service:
             },
         )
 
-        path = Path(destination)
+        path = Path(destination).expanduser().resolve()
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
             with path.open("w", encoding="utf-8", newline=line_ending(fmt)) as handle:
                 handle.write(content)
         except OSError as exc:

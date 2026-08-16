@@ -305,6 +305,20 @@ const STRINGS = {
     "srv.export_missing_entry": "This dictation is no longer in the history",
     "srv.export_no_timestamps": "This dictation has no word timings — subtitles need them",
     "srv.export_write_failed": "The file could not be written: {detail}",
+    "srv.export_bad_path": "Murmure will not write there ({detail}). Pick another location.",
+    "srv.error_command_failed": "That command failed: {detail}",
+    "srv.record_truncated":
+      "Recording stopped at the {minutes} min limit — {lost_seconds} s were not kept.",
+
+    // Le service n'a pas pu demarrer. L'application est alors muette : sans ces
+    // messages, l'utilisateur ne voit qu'un statut « hors ligne » sans cause.
+    "service.port_taken":
+      "Port {detail} is already used by another program. Close it, then restart Murmure.",
+    "service.stale_service":
+      "An older Murmure service is holding port {detail} and would not stop. Sign out and back in, or end it in the Task Manager.",
+    "service.python_missing":
+      "The Python environment is missing ({detail}). Run install.ps1 from the project folder.",
+    "service.spawn_failed": "The Murmure service could not start: {detail}",
 
     // --- erreurs du raccourci (cote Rust) ---
     "hotkey.invalid": "Invalid hotkey: « {accelerator} ». Expected format: Ctrl+Alt+D",
@@ -609,6 +623,21 @@ const STRINGS = {
     "srv.export_no_timestamps":
       "Cette dictée n'a pas de repères temporels — les sous-titres en ont besoin",
     "srv.export_write_failed": "Écriture du fichier impossible : {detail}",
+    "srv.export_bad_path":
+      "Murmure n'écrira pas là ({detail}). Choisis un autre emplacement.",
+    "srv.error_command_failed": "Cette commande a échoué : {detail}",
+    "srv.record_truncated":
+      "Enregistrement arrêté à la limite de {minutes} min — {lost_seconds} s n'ont pas été gardées.",
+
+    // Le service n'a pas pu demarrer. L'application est alors muette : sans ces
+    // messages, l'utilisateur ne voit qu'un statut « hors ligne » sans cause.
+    "service.port_taken":
+      "Le port {detail} est déjà occupé par un autre programme. Ferme-le, puis relance Murmure.",
+    "service.stale_service":
+      "Un ancien service Murmure occupe le port {detail} et refuse de s'arrêter. Ferme puis rouvre ta session, ou termine-le dans le gestionnaire des tâches.",
+    "service.python_missing":
+      "L'environnement Python est absent ({detail}). Lance install.ps1 depuis le dossier du projet.",
+    "service.spawn_failed": "Le service Murmure n'a pas pu démarrer : {detail}",
 
     // --- erreurs du raccourci (cote Rust) ---
     "hotkey.invalid": "Raccourci invalide : « {accelerator} ». Format attendu : Ctrl+Alt+D",
