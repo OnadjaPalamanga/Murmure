@@ -1,6 +1,8 @@
 // Client WebSocket vers le service Python. Se reconnecte tout seul : le service
 // peut redemarrer (changement de modele, mise a jour) sans qu'on relance l'UI.
 
+import { getLanguage, t } from "./i18n.js";
+
 const URL = "ws://127.0.0.1:8756/ws";
 
 export class Bus extends EventTarget {
@@ -75,16 +77,20 @@ export const formatDuration = (seconds) => {
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 };
 
+// en-GB et non en-US : jour puis mois, comme en francais, et heure sur 24 h.
+// Les deux langues rangent donc la date dans le meme ordre, ce qui evite de
+// relire « 08/09 » deux fois pour savoir si c'est aout ou septembre.
+const locale = () => (getLanguage() === "fr" ? "fr-FR" : "en-GB");
+
 export const formatDate = (iso) => {
   const d = new Date(iso.endsWith("Z") || iso.includes("+") ? iso : `${iso}Z`);
   const today = new Date();
-  const sameDay = d.toDateString() === today.toDateString();
-  const time = d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
-  if (sameDay) return `Aujourd'hui ${time}`;
+  const time = d.toLocaleTimeString(locale(), { hour: "2-digit", minute: "2-digit" });
+  if (d.toDateString() === today.toDateString()) return t("date.today", { time });
 
   const yesterday = new Date(today);
   yesterday.setDate(today.getDate() - 1);
-  if (d.toDateString() === yesterday.toDateString()) return `Hier ${time}`;
+  if (d.toDateString() === yesterday.toDateString()) return t("date.yesterday", { time });
 
-  return `${d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} ${time}`;
+  return `${d.toLocaleDateString(locale(), { day: "numeric", month: "short" })} ${time}`;
 };

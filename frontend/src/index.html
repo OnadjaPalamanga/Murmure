@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <title>Murmure</title>
@@ -11,25 +11,25 @@
       <nav class="sidebar">
         <button class="cta" id="btn-dictate">
           <span class="icon icon-mic" aria-hidden="true"></span>
-          <span id="cta-label">Dicter</span>
+          <span id="cta-label" data-i18n="nav.dictate">Dictate</span>
           <kbd id="cta-hotkey"></kbd>
         </button>
 
         <button class="nav-item" data-tab="files">
           <span class="icon icon-files" aria-hidden="true"></span>
-          <span>Fichiers</span>
+          <span data-i18n="nav.files">Files</span>
         </button>
         <button class="nav-item" data-tab="models">
           <span class="icon icon-models" aria-hidden="true"></span>
-          <span>Modèles</span>
+          <span data-i18n="nav.models">Models</span>
         </button>
         <button class="nav-item active" data-tab="history">
           <span class="icon icon-history" aria-hidden="true"></span>
-          <span>Historique</span>
+          <span data-i18n="nav.history">History</span>
         </button>
         <button class="nav-item" data-tab="settings">
           <span class="icon icon-settings" aria-hidden="true"></span>
-          <span>Réglages</span>
+          <span data-i18n="nav.settings">Settings</span>
         </button>
 
         <div class="sidebar-foot">
@@ -41,7 +41,7 @@
 
           <div class="status" id="status">
             <span class="dot" id="status-dot"></span>
-            <span id="status-text">Connexion…</span>
+            <span id="status-text" data-i18n="status.connecting">Connecting…</span>
           </div>
           <div class="stat" id="stats"></div>
         </div>
@@ -52,22 +52,22 @@
         <section class="panel active" data-panel="history">
           <header class="panel-head">
             <div class="history-heading">
-              <h1>Historique</h1>
+              <h1 data-i18n="history.title">History</h1>
               <div class="history-summary" id="history-summary" aria-live="polite">
-                <span id="history-count">0 dictée</span>
+                <span id="history-count"></span>
                 <span class="summary-separator" aria-hidden="true"></span>
-                <span id="history-duration">0 s d'audio</span>
+                <span id="history-duration"></span>
               </div>
               <button class="btn-outline" id="btn-audio-folder" type="button">
                 <span class="icon icon-folder" aria-hidden="true"></span>
-                <span>Dossier audio</span>
+                <span data-i18n="history.audioFolder">Audio folder</span>
               </button>
             </div>
             <input
               type="search"
               id="search"
               class="search"
-              placeholder="Rechercher dans les dictées…"
+              data-i18n-placeholder="history.search"
               autocomplete="off"
             />
           </header>
@@ -77,55 +77,42 @@
         <!-- -------------------------------------------------- Fichiers -->
         <section class="panel" data-panel="files">
           <header class="panel-head">
-            <h1>Transcrire des fichiers</h1>
-            <p class="sub">
-              Audio ou vidéo, n'importe quel format. Les vidéos sont acceptées :
-              seule la piste son est extraite.
-            </p>
+            <h1 data-i18n="files.title">Transcribe files</h1>
+            <p class="sub" data-i18n="files.sub"></p>
           </header>
 
           <div class="drop" id="drop">
             <div class="drop-inner">
               <div class="drop-icon"></div>
-              <p class="drop-title">Dépose tes fichiers ici</p>
+              <p class="drop-title" data-i18n="files.dropTitle">Drop your files here</p>
               <p class="drop-sub" id="drop-formats"></p>
-              <button class="btn-solid" id="btn-pick">Parcourir…</button>
+              <button class="btn-solid" id="btn-pick" data-i18n="files.browse">Browse…</button>
             </div>
           </div>
 
-          <!-- Les réglages de diarisation vivent ici, et pas dans Réglages :
-               ils ne concernent que l'import de fichiers, et c'est au moment de
-               déposer un enregistrement qu'on sait combien de gens y parlent. -->
+          <!-- Rappel des reglages de diarisation la ou on s'en sert. Ils sont
+               au complet dans Réglages ; ces deux-ci sont ceux qu'on change au
+               moment de deposer un fichier, parce que c'est a ce moment-la
+               qu'on sait combien de gens parlent dans l'enregistrement. -->
           <div class="form form-inline" id="diarize-form">
             <label class="row switch">
               <span class="label">
-                Identifier les locuteurs
-                <em id="diarize-hint"
-                  >Sépare la transcription par personne qui parle. Pour les réunions et
-                  les entretiens ; inutile si tu es seul à parler.</em
-                >
+                <span data-i18n="settings.diarizeOn">Identify speakers</span>
+                <em class="diarize-hint"></em>
               </span>
-              <input type="checkbox" id="set-diarize_files" />
+              <input type="checkbox" id="files-diarize_files" data-setting="diarize_files" />
             </label>
 
-            <label class="row" id="diarize-count-row">
+            <label class="row diarize-count-row">
               <span class="label">
-                Nombre de personnes
-                <em
-                  >Si tu le connais, indique-le : le résultat est nettement plus fiable
-                  qu'en détection automatique.</em
-                >
+                <span data-i18n="settings.diarizeCount">Number of people</span>
+                <em data-i18n="settings.diarizeCountHint"></em>
               </span>
-              <select id="set-diarize_speakers" class="input">
-                <option value="0">Détection automatique</option>
-                <option value="2">2 personnes</option>
-                <option value="3">3 personnes</option>
-                <option value="4">4 personnes</option>
-                <option value="5">5 personnes</option>
-                <option value="6">6 personnes</option>
-                <option value="7">7 personnes</option>
-                <option value="8">8 personnes</option>
-              </select>
+              <select
+                id="files-diarize_speakers"
+                class="input speaker-count"
+                data-setting="diarize_speakers"
+              ></select>
             </label>
           </div>
 
@@ -135,263 +122,354 @@
         <!-- --------------------------------------------------- Modèles -->
         <section class="panel" data-panel="models">
           <header class="panel-head">
-            <h1>Modèles</h1>
-            <p class="sub">
-              Dépose n'importe quel modèle CTranslate2 ou ONNX dans
-              <code>models/</code> : il apparaîtra ici au redémarrage du service.
-            </p>
+            <h1 data-i18n="models.title">Models</h1>
+            <p class="sub" data-i18n="models.sub"></p>
           </header>
           <div class="cards" id="model-cards"></div>
         </section>
 
         <!-- -------------------------------------------------- Réglages -->
         <section class="panel" data-panel="settings">
-          <header class="panel-head"><h1>Réglages</h1></header>
+          <header class="panel-head"><h1 data-i18n="settings.title">Settings</h1></header>
 
           <div class="form" id="settings-form">
             <fieldset>
-              <legend>Apparence</legend>
+              <legend data-i18n="settings.interface">Interface</legend>
+
+              <label class="row">
+                <span class="label">
+                  <span data-i18n="settings.language">Language</span>
+                  <em data-i18n="settings.languageHint"></em>
+                </span>
+                <select id="ui-language" class="input"></select>
+              </label>
 
               <div class="row">
                 <span class="label">
-                  Palette
-                  <em>Couleurs d'accent de la fenêtre et de l'overlay.</em>
+                  <span data-i18n="settings.palette">Palette</span>
+                  <em data-i18n="settings.paletteHint"></em>
                 </span>
-                <div class="palette-picker" id="appearance-palette" role="group" aria-label="Palette">
+                <div
+                  class="palette-picker"
+                  id="appearance-palette"
+                  role="group"
+                  data-i18n-label="settings.palette"
+                >
                   <button
                     type="button"
                     class="palette-swatch"
                     data-palette="magenta-blue"
-                    aria-label="Magenta et bleu"
-                    title="Magenta et bleu"
+                    data-i18n-label="settings.paletteMagenta"
+                    data-i18n-title="settings.paletteMagenta"
                   ></button>
                   <button
                     type="button"
                     class="palette-swatch"
                     data-palette="rose-violet"
-                    aria-label="Rose et violet"
-                    title="Rose et violet"
+                    data-i18n-label="settings.paletteRose"
+                    data-i18n-title="settings.paletteRose"
                   ></button>
                   <button
                     type="button"
                     class="palette-swatch"
                     data-palette="violet-azure"
-                    aria-label="Violet et azur"
-                    title="Violet et azur"
+                    data-i18n-label="settings.paletteViolet"
+                    data-i18n-title="settings.paletteViolet"
                   ></button>
                 </div>
               </div>
 
               <label class="row">
                 <span class="label">
-                  Densité du fond
-                  <em>Plus élevée : fond plus sombre et contenu arrière moins visible.</em>
+                  <span data-i18n="settings.density">Background density</span>
+                  <em data-i18n="settings.densityHint"></em>
                 </span>
                 <span class="range">
-                  <input
-                    type="range"
-                    id="appearance-density"
-                    min="72"
-                    max="96"
-                    step="1"
-                  />
+                  <input type="range" id="appearance-density" min="72" max="96" step="1" />
                   <output id="out-appearance-density"></output>
                 </span>
               </label>
             </fieldset>
 
             <fieldset>
-              <legend>Déclenchement</legend>
+              <legend data-i18n="settings.trigger">Trigger</legend>
 
               <label class="row">
-                <span class="label">Raccourci global</span>
-                <input type="text" id="set-hotkey" class="input" placeholder="Ctrl+Alt+Space" />
+                <span class="label" data-i18n="settings.hotkey">Global hotkey</span>
+                <input
+                  type="text"
+                  id="set-hotkey"
+                  data-setting="hotkey"
+                  class="input"
+                  placeholder="Ctrl+Alt+Space"
+                />
               </label>
 
               <label class="row">
                 <span class="label">
-                  Mode
-                  <em>Maintenir : parle tant que la touche est enfoncée.</em>
+                  <span data-i18n="settings.mode">Mode</span>
+                  <em data-i18n="settings.modeHint"></em>
                 </span>
-                <select id="set-hotkey_mode" class="input">
-                  <option value="hold">Maintenir la touche</option>
-                  <option value="toggle">Appuyer / ré-appuyer</option>
+                <select id="set-hotkey_mode" data-setting="hotkey_mode" class="input">
+                  <option value="hold" data-i18n="settings.modeHold"></option>
+                  <option value="toggle" data-i18n="settings.modeToggle"></option>
                 </select>
               </label>
             </fieldset>
 
             <fieldset>
-              <legend>Mode de dictée</legend>
+              <legend data-i18n="settings.dictation">Dictation mode</legend>
 
               <label class="row">
                 <span class="label">
-                  Quand le texte arrive
-                  <em
-                    >Différé : tu parles, le texte arrive d'un bloc, tu le relis avant de
-                    l'utiliser. Continu : chaque phrase tombe dès que tu la termines — plus
-                    de relecture, mais tu vois ce que le modèle a compris pendant que tu
-                    parles.</em
-                  >
+                  <span data-i18n="settings.whenText">When the text arrives</span>
+                  <em data-i18n="settings.whenTextHint"></em>
                 </span>
-                <select id="set-dictation_mode" class="input">
-                  <option value="differe">Différé — relecture (recommandé)</option>
-                  <option value="continu">Continu — phrase par phrase</option>
+                <select id="set-dictation_mode" data-setting="dictation_mode" class="input">
+                  <option value="differe" data-i18n="settings.modeDeferred"></option>
+                  <option value="continu" data-i18n="settings.modeContinuous"></option>
                 </select>
               </label>
 
               <label class="row switch">
                 <span class="label">
-                  Écrire au curseur
-                  <em
-                    >Chaque phrase validée est frappée dans l'application au premier plan.
-                    Une application lancée en administrateur refusera la frappe.</em
-                  >
+                  <span data-i18n="settings.injectCursor">Type at the cursor</span>
+                  <em data-i18n="settings.injectCursorHint"></em>
                 </span>
-                <input type="checkbox" id="set-inject_at_cursor" />
+                <input type="checkbox" id="set-inject_at_cursor" data-setting="inject_at_cursor" />
               </label>
 
               <label class="row">
                 <span class="label">
-                  Silence de fin de phrase
-                  <em
-                    >Trop court, une hésitation coupe la phrase en deux et le modèle perd le
-                    contexte. Trop long, le texte se fait attendre.</em
-                  >
+                  <span data-i18n="settings.phraseSilence">End-of-sentence silence</span>
+                  <em data-i18n="settings.phraseSilenceHint"></em>
                 </span>
                 <span class="range">
-                  <input type="range" id="set-phrase_silence_ms" min="400" max="1500" step="50" />
+                  <input
+                    type="range"
+                    id="set-phrase_silence_ms"
+                    data-setting="phrase_silence_ms"
+                    min="400"
+                    max="1500"
+                    step="50"
+                  />
                   <output id="out-phrase_silence_ms"></output>
                 </span>
               </label>
 
               <label class="row">
                 <span class="label">
-                  Polissage à la pause
-                  <em
-                    >Après chaque pause, les dernières phrases sont re-décodées ensemble :
-                    ponctuation, majuscules et répétitions corrigées. L'écriture au curseur
-                    attend le texte poli.</em
-                  >
+                  <span data-i18n="settings.polish">Polish at each pause</span>
+                  <em data-i18n="settings.polishHint"></em>
                 </span>
-                <select id="set-polish_mode" class="input">
-                  <option value="moteur">Activé — re-décodage groupé (recommandé)</option>
-                  <option value="aucun">Désactivé — phrase par phrase</option>
+                <select id="set-polish_mode" data-setting="polish_mode" class="input">
+                  <option value="moteur" data-i18n="settings.polishOn"></option>
+                  <option value="aucun" data-i18n="settings.polishOff"></option>
                 </select>
               </label>
 
               <label class="row">
                 <span class="label">
-                  Aperçu pendant la dictée
-                  <em
-                    >Affiche en grisé la phrase en cours, sans attendre qu'elle se termine.
-                    Jamais écrit au curseur. Inactif sans carte graphique.</em
-                  >
+                  <span data-i18n="settings.preview">Preview while dictating</span>
+                  <em data-i18n="settings.previewHint"></em>
                 </span>
                 <span class="range">
-                  <input type="range" id="set-preview_ms" min="0" max="1500" step="100" />
+                  <input
+                    type="range"
+                    id="set-preview_ms"
+                    data-setting="preview_ms"
+                    min="0"
+                    max="1500"
+                    step="100"
+                  />
                   <output id="out-preview_ms"></output>
                 </span>
               </label>
             </fieldset>
 
             <fieldset>
-              <legend>Langue</legend>
+              <legend data-i18n="settings.transcription">Transcription</legend>
 
               <label class="row">
                 <span class="label">
-                  Langue de transcription
-                  <em
-                    >Automatique préserve les anglicismes tels que tu les prononces.
-                    Forcer une langue pousse le modèle à les déformer
-                    phonétiquement.</em
-                  >
+                  <span data-i18n="settings.spokenLanguage">Spoken language</span>
+                  <em data-i18n="settings.spokenLanguageHint"></em>
                 </span>
-                <select id="set-language" class="input">
-                  <option value="auto">Automatique (recommandé)</option>
-                  <option value="fr">Français</option>
-                  <option value="en">Anglais</option>
+                <select id="set-language" data-setting="language" class="input">
+                  <option value="auto" data-i18n="settings.languageAuto"></option>
+                  <option value="fr" data-i18n="settings.languageFr"></option>
+                  <option value="en" data-i18n="settings.languageEn"></option>
                 </select>
               </label>
             </fieldset>
 
+            <!-- L'identification des locuteurs a ses propres reglages : elle
+                 dispose de modeles a elle, qu'on peut vouloir installer avant
+                 d'en avoir besoin ou effacer pour recuperer la place. -->
+            <fieldset id="diarize-fieldset">
+              <legend data-i18n="settings.speakers">Speaker identification</legend>
+              <p class="fieldset-intro" data-i18n="settings.speakersIntro"></p>
+
+              <label class="row switch">
+                <span class="label">
+                  <span data-i18n="settings.diarizeOn">Identify speakers</span>
+                  <em class="diarize-hint"></em>
+                </span>
+                <input type="checkbox" id="set-diarize_files" data-setting="diarize_files" />
+              </label>
+
+              <label class="row diarize-count-row">
+                <span class="label">
+                  <span data-i18n="settings.diarizeCount">Number of people</span>
+                  <em data-i18n="settings.diarizeCountHint"></em>
+                </span>
+                <select
+                  id="set-diarize_speakers"
+                  class="input speaker-count"
+                  data-setting="diarize_speakers"
+                ></select>
+              </label>
+
+              <label class="row" id="diarize-threshold-row">
+                <span class="label">
+                  <span data-i18n="settings.diarizeThreshold">Grouping sensitivity</span>
+                  <em id="diarize-threshold-hint"></em>
+                </span>
+                <span class="range">
+                  <input
+                    type="range"
+                    id="set-diarize_threshold"
+                    data-setting="diarize_threshold"
+                    min="0.3"
+                    max="0.9"
+                    step="0.05"
+                  />
+                  <output id="out-diarize_threshold"></output>
+                </span>
+              </label>
+
+              <div class="row" id="diarize-models-row">
+                <span class="label">
+                  <span data-i18n="settings.diarizeModels">Speaker models</span>
+                  <em id="diarize-models-hint"></em>
+                </span>
+                <span class="actions-inline">
+                  <button
+                    type="button"
+                    class="btn-outline"
+                    id="btn-diarize-download"
+                    data-i18n="settings.diarizeDownloadNow"
+                  ></button>
+                  <button
+                    type="button"
+                    class="btn-outline"
+                    id="btn-diarize-clear"
+                    data-i18n="settings.diarizeRemove"
+                  ></button>
+                </span>
+              </div>
+            </fieldset>
+
             <fieldset>
-              <legend>Micro</legend>
+              <legend data-i18n="settings.mic">Microphone</legend>
 
               <label class="row">
-                <span class="label">Périphérique d'entrée</span>
-                <select id="set-input_device" class="input"></select>
+                <span class="label" data-i18n="settings.inputDevice">Input device</span>
+                <select id="set-input_device" data-setting="input_device" class="input"></select>
               </label>
 
               <label class="row">
                 <span class="label">
-                  Pré-enregistrement
-                  <em>Capture ce qui précède l'appui, pour ne pas perdre le premier mot.</em>
+                  <span data-i18n="settings.preroll">Pre-recording</span>
+                  <em data-i18n="settings.prerollHint"></em>
                 </span>
                 <span class="range">
-                  <input type="range" id="set-preroll_ms" min="0" max="1000" step="50" />
+                  <input
+                    type="range"
+                    id="set-preroll_ms"
+                    data-setting="preroll_ms"
+                    min="0"
+                    max="1000"
+                    step="50"
+                  />
                   <output id="out-preroll_ms"></output>
                 </span>
               </label>
 
               <label class="row">
                 <span class="label">
-                  Micro maintenu ouvert
-                  <em>Évite de repayer l'ouverture du périphérique entre deux dictées.</em>
+                  <span data-i18n="settings.keepalive">Microphone held open</span>
+                  <em data-i18n="settings.keepaliveHint"></em>
                 </span>
                 <span class="range">
-                  <input type="range" id="set-mic_keepalive_s" min="0" max="300" step="10" />
+                  <input
+                    type="range"
+                    id="set-mic_keepalive_s"
+                    data-setting="mic_keepalive_s"
+                    min="0"
+                    max="300"
+                    step="10"
+                  />
                   <output id="out-mic_keepalive_s"></output>
                 </span>
               </label>
             </fieldset>
 
             <fieldset>
-              <legend>Après la dictée</legend>
+              <legend data-i18n="settings.after">After the dictation</legend>
 
               <label class="row switch">
-                <span class="label">Copier dans le presse-papier</span>
-                <input type="checkbox" id="set-copy_to_clipboard" />
+                <span class="label" data-i18n="settings.clipboard">Copy to the clipboard</span>
+                <input type="checkbox" id="set-copy_to_clipboard" data-setting="copy_to_clipboard" />
               </label>
 
               <label class="row switch">
                 <span class="label">
-                  Afficher la fenêtre de relecture
-                  <em>Décoché : le texte est copié et la fenêtre disparaît aussitôt.</em>
+                  <span data-i18n="settings.reviewWindow">Show the review window</span>
+                  <em data-i18n="settings.reviewWindowHint"></em>
                 </span>
-                <input type="checkbox" id="set-show_review_window" />
+                <input
+                  type="checkbox"
+                  id="set-show_review_window"
+                  data-setting="show_review_window"
+                />
               </label>
 
               <label class="row switch">
                 <span class="label">
-                  Conserver l'audio
-                  <em>Garde le wav de chaque dictée à côté de l'entrée d'historique.</em>
+                  <span data-i18n="settings.keepAudio">Keep the audio</span>
+                  <em data-i18n="settings.keepAudioHint"></em>
                 </span>
-                <input type="checkbox" id="set-keep_audio" />
+                <input type="checkbox" id="set-keep_audio" data-setting="keep_audio" />
               </label>
 
               <label class="row switch">
-                <span class="label">Supprimer le point final</span>
-                <input type="checkbox" id="set-trim_trailing_period" />
+                <span class="label" data-i18n="settings.trimPeriod">Drop the final full stop</span>
+                <input
+                  type="checkbox"
+                  id="set-trim_trailing_period"
+                  data-setting="trim_trailing_period"
+                />
               </label>
             </fieldset>
 
             <fieldset>
-              <legend>Moteur</legend>
+              <legend data-i18n="settings.engine">Engine</legend>
 
               <label class="row switch">
                 <span class="label">
-                  Utiliser le GPU
-                  <em>Décoché : tout tourne sur le CPU. Plus lent, mais zéro VRAM.</em>
+                  <span data-i18n="settings.gpu">Use the GPU</span>
+                  <em data-i18n="settings.gpuHint"></em>
                 </span>
-                <input type="checkbox" id="set-prefer_gpu" />
+                <input type="checkbox" id="set-prefer_gpu" data-setting="prefer_gpu" />
               </label>
 
               <label class="row switch">
                 <span class="label">
-                  Précharger au démarrage
-                  <em>Le modèle est chargé dès le lancement : la première dictée est instantanée.</em>
+                  <span data-i18n="settings.preload">Preload at startup</span>
+                  <em data-i18n="settings.preloadHint"></em>
                 </span>
-                <input type="checkbox" id="set-preload_on_start" />
+                <input type="checkbox" id="set-preload_on_start" data-setting="preload_on_start" />
               </label>
             </fieldset>
           </div>
@@ -401,13 +479,18 @@
 
     <dialog class="confirm-dialog" id="delete-dialog">
       <form method="dialog">
-        <h2>Supprimer cette dictée ?</h2>
-        <p id="delete-message">
-          Cette entrée sera retirée de l'historique. Cette action est définitive.
-        </p>
+        <h2 data-i18n="dialog.deleteTitle">Delete this dictation?</h2>
+        <p id="delete-message"></p>
         <div class="dialog-actions">
-          <button class="btn-outline" value="cancel">Annuler</button>
-          <button class="btn-danger" id="btn-confirm-delete" value="confirm">Supprimer</button>
+          <button class="btn-outline" value="cancel" data-i18n="dialog.cancel">Cancel</button>
+          <button
+            class="btn-danger"
+            id="btn-confirm-delete"
+            value="confirm"
+            data-i18n="dialog.confirmDelete"
+          >
+            Delete
+          </button>
         </div>
       </form>
     </dialog>

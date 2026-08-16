@@ -10,10 +10,12 @@ the computer — there is no server, no account, and no upload.
 ![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
 
-> **A note on language.** Murmure is a French dictation tool. Its interface,
-> its scripts and its source comments are in French; this README is in English
-> so the engineering is legible to a wider audience. The models themselves
-> handle 25 to 99 languages depending on which one you pick.
+> **A note on language.** The interface is available in **English (default) and
+> French**, switchable in Settings ▸ Interface without restarting. The source
+> comments and the PowerShell scripts are in French — this README is in English
+> so the engineering is legible to a wider audience. What you *speak* is a
+> separate setting: the models handle 25 to 99 languages depending on which one
+> you pick.
 
 ---
 
@@ -88,19 +90,33 @@ shown for review. **`Esc`** cancels.
 > shortcut already claimed by another application is reported rather than
 > failing silently.
 
-Three other ways to trigger it: the **Dicter** button in the main window, the
-**Dicter** entry in the tray menu, or the **Fichiers** tab to transcribe
-existing audio.
+Three other ways to trigger it: the **Dictate** button in the main window, the
+**Dictate** entry in the tray menu, or the **Files** tab to transcribe existing
+audio.
 
 Closing the main window does not quit — the shortcut stays live.
+
+### Interface language
+
+Settings ▸ *Interface* ▸ **Language**: English or French, applied immediately —
+no restart, and the overlay follows along, as does the tray menu. The choice is
+stored locally alongside the theme, not in the service configuration: it is a
+property of the screen you are looking at, not of the transcription.
+
+Two things this setting does **not** touch:
+
+- **the language you speak**, which lives under *Transcription* and stays on
+  automatic detection;
+- **your existing history**, which is stored as text and is never re-rendered.
 
 ---
 
 ## Continuous dictation
 
-Settings ▸ *Mode de dictée* ▸ **Continu**. Text now lands sentence by sentence
-as you speak, instead of arriving in one block at the end. With **Écrire au
-curseur**, it is typed into the foreground application, like Windows dictation.
+Settings ▸ *Dictation mode* ▸ **Continuous**. Text now lands sentence by
+sentence as you speak, instead of arriving in one block at the end. With **Type
+at the cursor**, it is typed into the foreground application, like Windows
+dictation.
 
 Three stages work in parallel, fastest to most accurate:
 
@@ -208,8 +224,8 @@ compute:
 | Whisper small | `fr` at 0.98 | correct French |
 | Whisper base | `ro` at 0.73 | Romanian, then Russian |
 
-On `base` and `tiny`, **force the language in Settings** when using continuous
-dictation.
+On `base` and `tiny`, **force the spoken language in Settings** when using
+continuous dictation.
 
 ---
 
@@ -277,7 +293,7 @@ options:
 
 ### Transcribing existing files
 
-**Fichiers** tab: drag and drop, or browse. Audio and video, any format — for a
+**Files** tab: drag and drop, or browse. Audio and video, any format — for a
 video, only the sound track is extracted. Common formats go through `soundfile`;
 the rest through `ffmpeg`.
 
@@ -289,13 +305,14 @@ the rest through `ffmpeg`.
 
 ## Speaker identification
 
-Tick **Identifier les locuteurs** in the *Fichiers* tab and the transcript comes
-back as a dialogue instead of one undifferentiated block:
+Tick **Identify speakers** — in Settings ▸ *Speaker identification*, or right
+above the drop zone in the *Files* tab — and the transcript comes back as a
+dialogue instead of one undifferentiated block:
 
 ```
-Locuteur 1 : Là je suis en train de tester la reconnaissance.
-Locuteur 2 : Et ça donne quoi sur une réunion à quatre ?
-Locuteur 1 : Chaque prise de parole est séparée.
+Speaker 1: Là je suis en train de tester la reconnaissance.
+Speaker 2: Et ça donne quoi sur une réunion à quatre ?
+Speaker 1: Chaque prise de parole est séparée.
 ```
 
 **Files only** — never live dictation. Grouping voices means deciding that the
@@ -304,7 +321,10 @@ that call before hearing them a second time. That is not a limitation to lift
 later; it is what diarization *is*.
 
 It costs nothing until you use it: the two models (~35 MB) are downloaded on
-first use, and the toggle is off by default.
+first use, and the toggle is off by default. If you would rather not discover a
+download in the middle of a one-hour file, Settings ▸ *Speaker identification*
+▸ **Speaker models** fetches them on demand — and removes them again to
+reclaim the space.
 
 ### How it works
 
@@ -328,7 +348,7 @@ finishing their sentence, while the word belongs to the next one.
 
 ### Tell it how many people there are
 
-The **Nombre de personnes** setting is the one that matters. Measured on a
+The **Number of people** setting is the one that matters. Measured on a
 four-speaker reference recording, varying only the clustering threshold:
 
 | Embedding model | 0.5 | 0.6 | 0.7 | 0.8 | 0.9 |
@@ -338,7 +358,9 @@ four-speaker reference recording, varying only the clustering threshold:
 
 Automatic detection lands correctly at the default threshold on that recording,
 but the right threshold depends on the embedding model *and* on the audio. When
-you know how many people are in the room, saying so removes the guesswork.
+you know how many people are in the room, saying so removes the guesswork —
+and the **Grouping sensitivity** slider, which is that threshold, greys out,
+because sherpa-onnx ignores it once the count is fixed.
 
 CAM++ is the default because it is trained on VoxCeleb — multilingual interview
 audio, which generalises to French — and because it is twice as fast as the
@@ -384,6 +406,7 @@ backend/                 Python service (the model lives here)
   tests/                 pure-logic tests, no model required
 frontend/                Tauri 2 application
   src/                   overlay + main window (HTML/CSS/JS)
+    i18n.js              English/French catalogue, and the service message keys
   src-tauri/src/lib.rs   global shortcut, tray icon, Python service
   src-tauri/src/inject.rs cursor typing (SendInput Unicode)
 ```
@@ -438,15 +461,23 @@ At startup the application queries `/health`. Same number: it attaches.
 Different number: it stops the service via `/shutdown` and starts its own.
 
 > **Raise both together** whenever a setting is added, removed, or changes
-> meaning. Raising only the backend's makes every service unacceptable to the
-> installed application; raising only the frontend's kills a perfectly valid
-> service on every startup.
+> meaning — and likewise when a WebSocket command appears, since an interface
+> that relies on one gets nothing but *unknown command* from a service that
+> predates it. Raising only the backend's makes every service unacceptable to
+> the installed application; raising only the frontend's kills a perfectly
+> valid service on every startup.
 
 ### Settings and data
 
 `%APPDATA%\Murmure\config.toml` — only values differing from the defaults are
 written, so the file stays readable and hand-editable. History lives in
 `history.db` next to it, and optional audio recordings in `audio\`.
+
+The interface language and the theme are **not** in there. They live in the
+web view's local storage, shared by both windows, because they describe the
+screen rather than the transcription — and because the service, which emits
+progress messages as `(key, parameters)` pairs rather than finished sentences,
+has no need to know which language you read.
 
 ---
 
@@ -513,7 +544,7 @@ your real history is not touched.
   `HF_HUB_OFFLINE=1` to suppress even that and work strictly from cache.
 - The service binds to **`127.0.0.1` only** and is unreachable from the network.
 - Transcriptions are stored **unencrypted** in `%APPDATA%\Murmure\history.db`.
-  Audio is only kept if you enable *Conserver l'audio*.
+  Audio is only kept if you enable *Keep the audio*.
 - Speaker identification runs **locally like everything else**. Voice embeddings
   are computed in memory to group turns within a single file and are never
   stored, never compared across files, and never leave the machine: Murmure can

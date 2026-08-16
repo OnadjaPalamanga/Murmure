@@ -1,7 +1,9 @@
 import { Bus, formatDuration } from "./ws.js";
 import { applyAppearance } from "./appearance.js";
+import { fromService, onLanguageChange, t, tn, translateDom } from "./i18n.js";
 
 applyAppearance();
+translateDom();
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -90,8 +92,18 @@ function renderStream() {
   el.text.scrollTop = el.text.scrollHeight;
 }
 
+/// L'indication est gardee sous forme de fonction, pas de texte fige : un
+/// changement de langue depuis la fenetre principale doit pouvoir la reecrire
+/// telle qu'elle est, sans attendre l'evenement suivant du service.
+let renderHint = () => t("overlay.ready");
+
+function setHint(render) {
+  renderHint = render;
+  el.hint.textContent = renderHint();
+}
+
 function countPhrases() {
-  el.hint.textContent = `${phraseCount} phrase${phraseCount > 1 ? "s" : ""}`;
+  setHint(() => tn("overlay.phrases", phraseCount));
 }
 
 // ------------------------------------------------------------ waveform
@@ -129,7 +141,7 @@ function setState(next, hint) {
   state = next;
   el.card.dataset.state = next;
   el.stop.disabled = next !== "recording" && next !== "streaming";
-  if (hint !== undefined) el.hint.textContent = hint;
+  if (hint !== undefined) setHint(hint);
 }
 
 function startTicking() {
@@ -155,7 +167,7 @@ function dismiss() {
   clearTimeout(hideTimer);
   stopTicking();
   resetWave();
-  setState("idle", "Prêt");
+  setState("idle", () => t("overlay.ready"));
   el.text.textContent = "";
   el.badge.textContent = "";
   resetStream();
@@ -173,12 +185,12 @@ async function beginDictation() {
   startTicking();
 
   if (isContinuous()) {
-    setState("streaming", "Écoute — le texte arrive au fil des phrases");
+    setState("streaming", () => t("overlay.streaming"));
     // Haut pour montrer le texte qui s'accumule, mais sans prendre le focus :
     // le curseur doit rester la ou l'utilisateur ecrit.
     await invoke("show_overlay", { review: true, focus: false });
   } else {
-    setState("recording", "Écoute…");
+    setState("recording", () => t("overlay.listening"));
     await invoke("show_overlay", { review: false });
   }
   bus.send("start");
@@ -188,7 +200,9 @@ function endDictation() {
   if (state !== "recording" && state !== "streaming") return;
   stopTicking();
   toggleActive = false;
-  setState("transcribing", isContinuous() ? "Dernière phrase…" : "Transcription…");
+  setState("transcribing", () =>
+    isContinuous() ? t("overlay.lastPhrase") : t("overlay.transcribing"),
+  );
   bus.send("stop");
 }
 
@@ -227,12 +241,12 @@ async function injectPhrase(text, first) {
     const typed = await invoke("type_text", { text: piece });
     if (!typed && !injectionWarned) {
       injectionWarned = true;
-      el.hint.textContent = "Texte non inséré — Murmure a le focus";
+      setHint(() => t("overlay.notTyped"));
     }
   } catch (err) {
     if (!injectionWarned) {
       injectionWarned = true;
-      el.hint.textContent = "Insertion refusée par l'application";
+      setHint(() => t("overlay.typingRefused"));
       el.hint.title = String(err);
     }
   }
@@ -267,8 +281,8 @@ listen("hotkey", async ({ payload }) => {
 
 bus.on("connection", ({ connected }) => {
   el.card.dataset.offline = String(!connected);
-  if (!connected && state === "idle") el.hint.textContent = "Service hors ligne";
-  else if (connected && state === "idle") el.hint.textContent = "Prêt";
+  if (!connected && state === "idle") setHint(() => t("overlay.offline"));
+  else if (connected && state === "idle") setHint(() => t("overlay.ready"));
 });
 
 bus.on("snapshot", (msg) => {
@@ -280,7 +294,7 @@ bus.on("level", ({ value }) => {
 });
 
 bus.on("model_loading", ({ label }) => {
-  if (state !== "recording") el.hint.textContent = `Préparation ${label}…`;
+  if (state !== "recording") setHint(() => t("overlay.preparing", { label }));
 });
 
 // Une phrase vient d'etre transcrite. Definitive tant qu'on ne polit pas ;
@@ -337,7 +351,7 @@ bus.on("speech", ({ speaking }) => {
   renderStream();
 
   if (!phraseCount) return;
-  if (speaking) el.hint.textContent = "Phrase en cours…";
+  if (speaking) setHint(() => t("overlay.speaking"));
   else countPhrases();
 });
 
@@ -346,19 +360,19 @@ bus.on("speech", ({ speaking }) => {
 bus.on("model_stage", (msg) => {
   if (state === "recording" || state === "streaming") return;
   if (msg.stage === "downloading") {
-    const mo = (msg.downloaded_bytes / 1024 / 1024).toFixed(0);
-    el.hint.textContent = `Téléchargement du modèle — ${mo} Mo`;
+    const size = (msg.downloaded_bytes / 1024 / 1024).toFixed(0);
+    setHint(() => t("overlay.downloading", { size }));
   } else if (msg.stage === "loading") {
-    el.hint.textContent = "Chargement en mémoire…";
+    setHint(() => t("overlay.loadingMemory"));
   } else if (msg.stage === "warmup") {
-    el.hint.textContent = "Préparation GPU…";
+    setHint(() => t("overlay.warmup"));
   }
 });
 
 bus.on("final", async (msg) => {
   const { entry, latency_ms, realtime_factor, device, streamed: wasStreamed } = msg;
   stopTicking();
-  setState("done", "Terminé");
+  setState("done", () => t("overlay.done"));
   el.text.textContent = entry.text;
   el.badge.textContent = `${latency_ms} ms · ${realtime_factor}× · ${device}`;
   toggleActive = false;
@@ -388,28 +402,31 @@ bus.on("final", async (msg) => {
   }
 });
 
-bus.on("empty", ({ reason }) => {
+bus.on("empty", (msg) => {
   stopTicking();
   toggleActive = false;
-  setState("idle", reason ? `Rien à transcrire — ${reason}` : "Rien à transcrire");
+  setState("idle", () => {
+    const reason = fromService(msg);
+    return reason ? t("overlay.nothingReason", { reason }) : t("overlay.nothing");
+  });
   armHide(2200);
 });
 
-bus.on("error", ({ message }) => {
+bus.on("error", (msg) => {
   stopTicking();
   toggleActive = false;
-  setState("idle", "Erreur");
-  el.hint.title = message;
+  setState("idle", () => t("overlay.error"));
+  el.hint.title = fromService(msg);
   armHide(4500);
 });
 
 // ------------------------------------------------------------ interactions
 
 function flashCopied() {
-  el.copy.textContent = "Copié ✓";
+  el.copy.textContent = t("overlay.copied");
   el.copy.classList.add("copied");
   setTimeout(() => {
-    el.copy.textContent = "Copier";
+    el.copy.textContent = t("overlay.copy");
     el.copy.classList.remove("copied");
   }, 1400);
 }
@@ -439,4 +456,12 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+// La langue est choisie dans la fenetre principale ; les deux fenetres
+// partagent le meme stockage local, et l'overlay se remet a jour tout seul.
+onLanguageChange(() => {
+  translateDom();
+  el.hint.textContent = renderHint();
+});
+
 resetWave();
+setHint(() => t("overlay.ready"));

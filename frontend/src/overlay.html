@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <title>Murmure</title>
@@ -16,8 +16,8 @@
           type="button"
           class="record-control"
           id="btn-stop"
-          aria-label="Arrêter la dictée"
-          title="Arrêter et transcrire"
+          data-i18n-label="overlay.stopLabel"
+          data-i18n-title="overlay.stopTitle"
           disabled
         >
           <span class="pulse" aria-hidden="true"></span>
@@ -27,15 +27,15 @@
 
         <div class="meta">
           <span class="timer" id="timer">00:00</span>
-          <span class="hint" id="hint">Prêt</span>
+          <span class="hint" id="hint"></span>
         </div>
 
         <button
           type="button"
           class="close-overlay"
           id="btn-close"
-          aria-label="Fermer la fenêtre de dictée"
-          title="Fermer (Échap)"
+          data-i18n-label="overlay.closeLabel"
+          data-i18n-title="overlay.closeTitle"
         >
           <span aria-hidden="true">×</span>
         </button>
@@ -47,8 +47,8 @@
         <footer class="actions">
           <span class="badge" id="badge"></span>
           <div class="spacer"></div>
-          <button class="btn ghost" id="btn-redo">Refaire</button>
-          <button class="btn primary" id="btn-copy">Copier</button>
+          <button class="btn ghost" id="btn-redo" data-i18n="overlay.redo">Redo</button>
+          <button class="btn primary" id="btn-copy" data-i18n="overlay.copy">Copy</button>
         </footer>
       </section>
     </div>

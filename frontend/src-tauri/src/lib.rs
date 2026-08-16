@@ -23,15 +23,54 @@ const OVERLAY_WIDTH: f64 = 460.0;
 /// Marge au-dessus de la barre des taches.
 const BOTTOM_MARGIN: f64 = 96.0;
 
+/// Un echec d'enregistrement du raccourci, sous une forme que l'interface peut
+/// traduire. On rend un code et ses parametres plutot qu'une phrase toute
+/// faite : l'interface existe en deux langues, et c'est elle qui sait laquelle
+/// est affichee. `detail` porte le message d'origine, utile tel quel.
+#[derive(Clone, Debug, serde::Serialize)]
+struct HotkeyError {
+    code: &'static str,
+    accelerator: String,
+    detail: String,
+}
+
+impl std::fmt::Display for HotkeyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} ({}) {}", self.code, self.accelerator, self.detail)
+    }
+}
+
 #[derive(Default)]
 struct Hotkey {
     current: Option<Shortcut>,
     /// Dernier echec d'enregistrement, pour que l'UI puisse le signaler au lieu
     /// de laisser croire que le raccourci fonctionne.
-    error: Option<String>,
+    error: Option<HotkeyError>,
 }
 
 struct HotkeyState(Mutex<Hotkey>);
+
+/// Les entrees du menu de la zone de notification, gardees pour pouvoir les
+/// renommer quand la langue change. Le menu est construit avant qu'aucune page
+/// ne s'affiche : il demarre donc dans la langue par defaut, et l'interface le
+/// corrige des qu'elle sait laquelle l'utilisateur a choisie.
+struct TrayItems {
+    dictate: MenuItem<tauri::Wry>,
+    history: MenuItem<tauri::Wry>,
+    settings: MenuItem<tauri::Wry>,
+    quit: MenuItem<tauri::Wry>,
+}
+
+struct TrayMenu(Mutex<Option<TrayItems>>);
+
+#[derive(serde::Deserialize)]
+struct TrayLabels {
+    dictate: String,
+    history: String,
+    settings: String,
+    quit: String,
+    tooltip: String,
+}
 
 /// Le service Python lance par l'application, pour qu'il n'y ait qu'une seule
 /// chose a demarrer. Vide si un service tournait deja : on ne le double pas.
@@ -63,7 +102,7 @@ fn find_service_python() -> Option<(PathBuf, PathBuf)> {
 /// Revision des reglages attendue du service. Doit valoir `SETTINGS_REVISION`
 /// dans `backend/src/murmure/server.py` : les deux montent ensemble des qu'un
 /// reglage est ajoute, retire ou change de sens.
-const SETTINGS_REVISION: u32 = 3;
+const SETTINGS_REVISION: u32 = 4;
 
 /// Ce que repond le service sur le port 8756, s'il repond.
 enum ServiceState {
@@ -293,21 +332,27 @@ fn open_main(app: AppHandle, tab: Option<String>) {
 
 /// (Re)enregistre le raccourci global. Le precedent est libere d'abord.
 #[tauri::command]
-fn set_hotkey(app: AppHandle, accelerator: String) -> Result<(), String> {
-    let state = app.state::<HotkeyState>();
-    let mut hotkey = state.0.lock().map_err(|e| e.to_string())?;
+fn set_hotkey(app: AppHandle, accelerator: String) -> Result<(), HotkeyError> {
+    let fail = |code: &'static str, detail: String| HotkeyError {
+        code,
+        accelerator: accelerator.clone(),
+        detail,
+    };
 
-    let result = (|| -> Result<Shortcut, String> {
-        let shortcut: Shortcut = accelerator.parse().map_err(|_| {
-            format!("Raccourci invalide : « {accelerator} ». Format attendu : Ctrl+Alt+D")
-        })?;
+    let state = app.state::<HotkeyState>();
+    let mut hotkey = state.0.lock().map_err(|e| fail("invalid", e.to_string()))?;
+
+    let result = (|| -> Result<Shortcut, HotkeyError> {
+        let shortcut: Shortcut = accelerator
+            .parse()
+            .map_err(|_| fail("invalid", String::new()))?;
 
         if let Some(previous) = hotkey.current.take() {
             let _ = app.global_shortcut().unregister(previous);
         }
-        app.global_shortcut().register(shortcut).map_err(|e| {
-            format!("« {accelerator} » est déjà utilisé par une autre application ({e}). Choisis-en un autre.")
-        })?;
+        app.global_shortcut()
+            .register(shortcut)
+            .map_err(|e| fail("taken", e.to_string()))?;
         Ok(shortcut)
     })();
 
@@ -317,9 +362,9 @@ fn set_hotkey(app: AppHandle, accelerator: String) -> Result<(), String> {
             hotkey.error = None;
             Ok(())
         }
-        Err(message) => {
-            hotkey.error = Some(message.clone());
-            Err(message)
+        Err(error) => {
+            hotkey.error = Some(error.clone());
+            Err(error)
         }
     }
 }
@@ -327,22 +372,63 @@ fn set_hotkey(app: AppHandle, accelerator: String) -> Result<(), String> {
 /// L'UI interroge cet etat au chargement : la fenetre principale n'existe pas
 /// encore quand le raccourci par defaut est enregistre, un evenement serait perdu.
 #[tauri::command]
-fn hotkey_status(app: AppHandle) -> Result<Option<String>, String> {
+fn hotkey_status(app: AppHandle) -> Result<Option<HotkeyError>, String> {
     let state = app.state::<HotkeyState>();
     let hotkey = state.0.lock().map_err(|e| e.to_string())?;
     Ok(hotkey.error.clone())
 }
 
+/// Renomme le menu de la zone de notification. Appele par l'interface au
+/// demarrage et a chaque changement de langue : le menu vit cote Rust, il ne
+/// peut pas lire le catalogue de traduction, on lui envoie donc les libelles.
+#[tauri::command]
+/// Rend `false` si le menu n'existe pas encore : l'appelant reessaiera.
+fn set_tray_labels(app: AppHandle, labels: TrayLabels) -> Result<bool, String> {
+    // `try_state` et non `state` : la page se charge pendant que `setup` tourne,
+    // et elle appelle cette commande des qu'elle sait quelle langue afficher.
+    // `state` paniquerait si le menu n'etait pas encore construit.
+    let Some(state) = app.try_state::<TrayMenu>() else {
+        return Ok(false);
+    };
+    let items = state.0.lock().map_err(|e| e.to_string())?;
+    let Some(items) = items.as_ref() else {
+        return Ok(false);
+    };
+
+    let rename = |item: &MenuItem<tauri::Wry>, text: String| -> Result<(), String> {
+        item.set_text(text).map_err(|e| e.to_string())
+    };
+    rename(&items.dictate, labels.dictate)?;
+    rename(&items.history, labels.history)?;
+    rename(&items.settings, labels.settings)?;
+    rename(&items.quit, labels.quit)?;
+
+    if let Some(tray) = app.tray_by_id("murmure") {
+        let _ = tray.set_tooltip(Some(labels.tooltip));
+    }
+    Ok(true)
+}
+
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    let dictate = MenuItem::with_id(app, "dictate", "Dicter", true, None::<&str>)?;
-    let history = MenuItem::with_id(app, "history", "Historique", true, None::<&str>)?;
-    let settings = MenuItem::with_id(app, "settings", "Reglages", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quitter", true, None::<&str>)?;
+    // Libelles anglais a la construction : c'est la langue par defaut de
+    // l'interface. Si l'utilisateur a choisi le francais, `set_tray_labels` les
+    // remplace des que la fenetre principale a fini de se charger.
+    let dictate = MenuItem::with_id(app, "dictate", "Dictate", true, None::<&str>)?;
+    let history = MenuItem::with_id(app, "history", "History", true, None::<&str>)?;
+    let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&dictate, &history, &settings, &quit])?;
+
+    app.manage(TrayMenu(Mutex::new(Some(TrayItems {
+        dictate: dictate.clone(),
+        history: history.clone(),
+        settings: settings.clone(),
+        quit: quit.clone(),
+    }))));
 
     TrayIconBuilder::with_id("murmure")
         .icon(app.default_window_icon().unwrap().clone())
-        .tooltip("Murmure — dictee locale")
+        .tooltip("Murmure — local dictation")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_tray_icon_event(|tray, event| match event {
@@ -416,6 +502,7 @@ pub fn run() {
             trigger_dictation,
             set_hotkey,
             hotkey_status,
+            set_tray_labels,
             type_text
         ])
         .setup(|app| {

@@ -6,6 +6,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — the interface speaks English and French
+
+- **Interface language, English by default**, French on request, switchable in
+  Settings ▸ Interface with no restart. The overlay and the tray menu follow the
+  same choice: both windows share one local-storage key, and the menu, which
+  lives in Rust and cannot read the catalogue, is renamed through a command.
+- The service no longer emits finished sentences. Progress and errors travel as
+  **`(key, parameters)` pairs**, and the interface renders them — which is what
+  lets the language change while a one-hour file is being transcribed. The old
+  `message` field is still sent and used as a fallback, so a service newer than
+  the interface still has something to display.
+- Model descriptions exist in both languages, side by side in the catalogue
+  rather than in a separate translation file: they are technical claims about
+  behaviour, and seeing them together is what keeps them from drifting apart.
+- Dates in the history are localised too. `en-GB` rather than `en-US`, so both
+  languages order a date the same way and "08/09" never needs reading twice.
+
+The language you *speak* is untouched by all this: it stays under Transcription,
+on automatic detection, and the two settings never meet.
+
+### Added — diarization settings
+
+- A full **Speaker identification** group in Settings: the toggle, the number of
+  people, the clustering threshold — which had no control at all until now — and
+  the models themselves, which can be **downloaded on demand and removed again**.
+  Discovering a 35 MB download in the middle of a one-hour file is a surprise
+  worth being able to avoid.
+- The threshold greys out when the number of people is set, because sherpa-onnx
+  ignores it then. An active control with no effect is worse than a greyed one.
+- The toggle and the speaker count also stay in the Files tab, above the drop
+  zone. They are bound to the same setting through `data-setting` rather than
+  through element ids, and mirror each other immediately.
+- Downloads are serialised behind a lock. Two concurrent requests — the settings
+  button and an imported file asking for the same models — wrote into the same
+  `.part` file and could leave a truncated model that `models_present()` would
+  have reported as complete.
+
+### Fixed
+
+- `models/diarization` was picked up as a transcription model. Its voice
+  embedding is a `.onnx` file at the root of a folder under `models/` — exactly
+  the signature used to detect a hand-dropped onnx-asr model — so it appeared in
+  the catalogue as something selectable, and selecting it broke dictation. Only
+  `hub` was excluded; the exclusion list is now explicit.
+
+`SETTINGS_REVISION` moves 3 → 4: two commands appear (`diarize_download`,
+`diarize_clear`), and an interface that relies on them gets nothing but *unknown
+command* from a service that predates them.
+
 ### Added — speaker identification
 
 - **Diarization for imported files.** Transcripts of meetings and interviews
@@ -34,7 +83,7 @@ Diarization never costs a transcription: a missing dependency, an interrupted
 download, an unreadable model or an engine that cannot date its words all fall
 back to the plain continuous transcript.
 
-`SETTINGS_REVISION` moves 2 → 3 in both `server.py` and `lib.rs`.
+`SETTINGS_REVISION` moved 2 → 3 in both `server.py` and `lib.rs`.
 
 ### Added
 

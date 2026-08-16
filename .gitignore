@@ -1,6 +1,11 @@
 # --- Environments and dependencies ---
 backend/.venv/
 frontend/node_modules/
+# Genere par `uv run`, mais jamais lu : l'installation passe par
+# `uv pip install -e .`, qui ignore le verrou. Le committer figerait des roues
+# CUDA resolues sur une seule machine, dans un fichier que rien ne consulte.
+uv.lock
+
 __pycache__/
 *.egg-info/
 *.pyc
