@@ -45,6 +45,15 @@ on automatic detection, and the two settings never meet.
 
 ### Fixed
 
+- A range setting whose stored value fell outside the slider's bounds displayed
+  the stored value next to a slider pinned at its limit — announcing a setting
+  that does not exist. The settings file is meant to be hand-edited, so the
+  case is reachable; the readout is taken back from the control.
+- `install.ps1` compared sources against the binary's timestamp. A file edited
+  while the build was running came out older than the binary that build
+  produced, so the next run reported "already up to date" over a binary that
+  ignored the edit. The reference is now the instant the last build *started*,
+  and the stamp recording it is written only after the build succeeds.
 - `models/diarization` was picked up as a transcription model. Its voice
   embedding is a `.onnx` file at the root of a folder under `models/` — exactly
   the signature used to detect a hand-dropped onnx-asr model — so it appeared in

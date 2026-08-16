@@ -111,11 +111,24 @@ $sources = @(
 $newest = Get-ChildItem $sources -Recurse -File -EA SilentlyContinue |
     Sort-Object LastWriteTime -Descending | Select-Object -First 1
 
-$stale = (-not (Test-Path $exe)) -or
-         ($newest -and $newest.LastWriteTime -gt (Get-Item $exe).LastWriteTime)
+# La reference n'est PAS la date du binaire, mais celle du DEBUT de la derniere
+# compilation. Une source modifiee pendant que la compilation tourne est plus
+# ancienne que le binaire qui en sort : comparer au binaire la declare prise en
+# compte, alors qu'elle ne l'est pas. Vecu — un fichier edite pendant les deux
+# minutes de compilation, puis « Binaire deja a jour » au passage suivant, et le
+# binaire installe ignorait la modification. Le jeton, lui, est ecrit avant, donc
+# cette source est bien plus recente que lui et force le rebuild.
+$stampFile = Join-Path $root "frontend\src-tauri\target\release\.murmure-build-stamp"
+$stamp = if (Test-Path $stampFile) {
+    try { [datetime]::new([long](Get-Content $stampFile -Raw).Trim()) } catch { $null }
+} else { $null }
+
+$stale = (-not (Test-Path $exe)) -or (-not $stamp) -or
+         ($newest -and $newest.LastWriteTime -gt $stamp)
 
 if ($stale) {
     Write-Host "Compilation de l'application (quelques minutes)..." -ForegroundColor Cyan
+    $startedAt = Get-Date
     Push-Location (Join-Path $root "frontend")
     try {
         if (-not (Test-Path "node_modules")) {
@@ -135,6 +148,10 @@ Visual Studio Installer > « Desktop development with C++ », puis relance.
     } finally {
         Pop-Location
     }
+    # Apres coup seulement : une compilation qui echoue ne doit pas laisser
+    # derriere elle un jeton qui ferait passer les sources pour compilees.
+    New-Item -ItemType Directory -Force (Split-Path $stampFile) | Out-Null
+    Set-Content -Path $stampFile -Value $startedAt.Ticks -Encoding ascii
 } else {
     Write-Host "Binaire deja a jour." -ForegroundColor DarkGray
 }

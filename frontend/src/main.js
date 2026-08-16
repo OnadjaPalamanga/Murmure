@@ -522,8 +522,13 @@ function writeField(name, value) {
     if (node.tagName === "SELECT" && node.selectedIndex < 0) node.selectedIndex = 0;
   }
 
+  // La valeur RELUE depuis la commande, pas celle qu'on voulait y mettre. Le
+  // fichier de reglages se modifie a la main : un `preroll_ms = 5000` hors des
+  // bornes du curseur est ramene a 1000 par le navigateur, et afficher « 5000 »
+  // a cote d'un curseur pousse a fond annoncerait un reglage qui n'existe pas.
   const out = document.getElementById(`out-${name}`);
-  if (out) out.textContent = readout(name, value);
+  const node = nodeFor(name);
+  if (out && node) out.textContent = readout(name, node.value);
 }
 
 /// Les reglages qui n'ont plus de sens en dictee continue sont grises plutot

@@ -428,9 +428,15 @@ true:
   for development, but that binary goes stale as soon as release is rebuilt, and
   it is just as double-clickable.
 
-`install.ps1` recompiles as soon as the binary is **older than a source file**,
-not merely when it is absent: a stale binary launches just as well as a fresh
-one, and nothing in the interface reveals its age.
+`install.ps1` recompiles as soon as a source file is **newer than the last
+build**, not merely when the binary is absent: a stale binary launches just as
+well as a fresh one, and nothing in the interface reveals its age.
+
+The comparison is against the moment the last build *started*, recorded in a
+stamp file, and not against the binary's own timestamp. A file edited while a
+two-minute build is running ends up older than the binary that build produces —
+comparing to the binary would declare it compiled when it is not, and the next
+run would report "already up to date" over a binary that ignores the edit.
 
 ### One instance
 
