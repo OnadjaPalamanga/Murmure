@@ -26,9 +26,9 @@ jobs:
         # catches anything that quietly assumed a Windows path separator.
         os: [windows-latest, ubuntu-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -51,7 +51,7 @@ jobs:
     name: Cross-language constants
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # SETTINGS_REVISION lives in two languages and must move as one. The
       # README asks contributors to remember; this makes forgetting impossible.
@@ -63,7 +63,7 @@ jobs:
     name: Frontend — Rust check
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -87,9 +87,9 @@ jobs:
     name: Dependency audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
