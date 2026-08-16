@@ -1,0 +1,24 @@
+# Dependances de l'integration continue, epinglees.
+#
+# Deliberement PAS `pip install -e .[dev]` : la pile d'execution tire
+# onnxruntime-gpu, faster-whisper et le runtime CUDA 12 — plusieurs gigaoctets,
+# pour une carte graphique qu'aucun runner ne possede. La suite est construite
+# pour n'en avoir besoin d'aucun : la porte de detection de parole est
+# substituee, et `tests/conftest.py` bouchonne les deux modules audio natifs.
+#
+# Recopier cette liste dans le workflow la ferait diverger du jour ou un test
+# aura besoin d'un paquet de plus, et l'echec serait attribue a la pull request
+# qui passait par la. Les versions sont figees pour la meme raison : une
+# nouvelle version de ruff ne doit pas casser la CI sans qu'une ligne du projet
+# n'ait bouge.
+
+pytest==8.3.4
+ruff==0.16.3
+numpy==2.2.1
+platformdirs==4.3.6
+
+# Le transport, pour `tests/test_server.py` : c'est la que se verifie le refus
+# du handshake WebSocket, qui est le controle de securite le plus important du
+# projet. Python pur ou roues precompilees, aucune compilation sur le runner.
+fastapi==0.115.6
+httpx==0.28.1

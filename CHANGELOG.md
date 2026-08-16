@@ -6,6 +6,90 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security — the local service now authenticates its clients
+
+- **The WebSocket required no authentication of any kind.** The service listens
+  on `127.0.0.1`, which was treated as sufficient — but the same-origin policy
+  does not apply to WebSocket connections, so **any web page you visited could
+  open a socket to `localhost:8756`** and hold the same powers as the
+  application: read the entire dictation history, start the microphone and
+  collect the transcript, delete entries, change settings. Because Murmure
+  starts with your Windows session, that port was open all day, every day.
+- **It also allowed code execution.** `export_entry` wrote attacker-chosen
+  content to an attacker-chosen path with `mkdir(parents=True)`: chaining
+  `history_update` to place the payload and `export_entry` to drop it into the
+  Startup folder ran it at the next sign-in.
+- Both are closed. Every WebSocket connection and every HTTP route except
+  `/health` now requires a **session token**, drawn fresh at each service start
+  and written to `%APPDATA%\Murmure\session.token` — a file a web page cannot
+  read. An **origin check** refuses anything that is not the Tauri webview, even
+  with a valid token. `/shutdown` is authenticated too: a page able to stop your
+  dictation at will is a silent denial of service.
+- `export_entry` now refuses relative paths, extensions that disagree with the
+  requested format, system folders, and destinations whose parent directory does
+  not already exist. No export creates a directory tree any more.
+- `/health` no longer reports the loaded model or device. It was the one route
+  any page could read, and none of that was needed by any caller.
+- `history_search` bounds `limit` and `offset`. A request for a million entries
+  used to materialise them all in memory and serialise them to JSON.
+- `SETTINGS_REVISION` is now **6**: an older interface connects without a token
+  and would be refused at the handshake with nothing to explain it.
+
+### Fixed
+
+- **Settings could be destroyed by a single bad value.** A newline in any string
+  produced invalid TOML, and the next start silently fell back to defaults —
+  *every* setting lost because of one. Control characters are now escaped, an
+  unreadable file is set aside as `config.<date>.corrompu` instead of being
+  overwritten, and the loss is visible and recoverable.
+- **No setting was type-checked.** A value of the wrong type was persisted and
+  survived restart: `replacements` set to a list raised `AttributeError` on every
+  transcription, for ever, and restarting did not help because the value was in
+  the file. Every setting now has a validator applied both on write and on read;
+  anything invalid is refused with a message and never reaches disk. Editing
+  `config.toml` by hand is safe again.
+- **The pre-recording setting did nothing.** The ring buffer's depth was fixed at
+  construction; moving the slider wrote an attribute nothing read back. It now
+  resizes the buffer, keeping the audio already captured.
+- **Dictations were truncated at ten minutes in silence.** Anything past the
+  limit was discarded with no warning, no event and no log line. The limit now
+  emits an event, and the interface says how much was not kept.
+- **Murmure could tell an unrelated program to shut down.** A response on port
+  8756 that failed to parse was classified as a stale Murmure, which was then
+  sent `POST /shutdown`. A response must now carry our signature; anything else
+  is left alone and reported as a busy port.
+- **A service that failed to start said so only to a console that does not
+  exist.** The failure went to `eprintln!` in a windowed application, leaving a
+  permanent "offline" status with no cause. The reason now reaches the interface,
+  in both languages.
+- The event pump no longer dies silently on an unexpected error, which left the
+  interface connected, accepting commands, and receiving nothing ever again.
+  Concurrent sends on the socket are serialised.
+- Closing the history while a background transcription is still running now
+  raises a named `HistoryClosed` instead of an opaque `ProgrammingError`, and the
+  workers treat it as the shutdown it is.
+- `PROJECT_ROOT` no longer assumes an editable install. From a normal wheel it
+  pointed at an arbitrary directory above `site-packages`, which is where models
+  and `ffmpeg` would have been looked for.
+
+### Changed — repository and CI
+
+- Added **SECURITY.md** (with the threat model this release implements),
+  **CONTRIBUTING.md**, **CODE_OF_CONDUCT.md**, issue and pull-request templates,
+  `.editorconfig` and grouped monthly Dependabot updates.
+- CI now runs the tests on **Windows as well as Ubuntu** — the platform Murmure
+  actually runs on was never exercised. Test dependencies moved to a pinned
+  `backend/requirements-ci.txt`, so they can no longer drift from what the suite
+  needs, and a new ruff release cannot break an unrelated pull request.
+- A new job checks that `SETTINGS_REVISION` agrees between Python and Rust, and
+  that the version agrees across all five files that spell it out. Both were
+  documented conventions that a contributor could only forget.
+- Advisory-only dependency audits (`pip-audit`, `cargo audit`) run on every push.
+- **`Service` has tests**, with a substituted engine — a thousand lines of
+  orchestration had none, which is where every bug above was found. The suite
+  also no longer writes to the developer's real `%APPDATA%\Murmure`. 214 tests
+  became 309.
+
 ### Added — a command line, for pipelines
 
 - **`murmure transcribe`** turns a batch of audio or video files into

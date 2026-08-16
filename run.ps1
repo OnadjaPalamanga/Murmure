@@ -1,7 +1,12 @@
 # Lance le service Python puis l'application. A epingler ou a mettre au demarrage.
 #
 #   .\run.ps1          lance en mode developpement (rechargement du frontend)
-#   .\run.ps1 -Build   compile l'installateur .exe dans frontend/src-tauri/target/release
+#   .\run.ps1 -Build   compile le binaire release
+#
+# -Build produit `frontend/src-tauri/target/release/murmure.exe`, PAS un
+# installateur : `tauri.conf.json` porte "bundle": { "active": false }. Le
+# dossier du projet est l'installation — voir install.ps1, qui pose simplement
+# des raccourcis vers ce binaire.
 
 param([switch]$Build)
 

@@ -15,21 +15,29 @@ concurrency:
 
 jobs:
   backend:
-    name: Backend — lint and tests
-    runs-on: ubuntu-latest
+    name: Backend — ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows is the platform Murmure actually runs on: %APPDATA% paths,
+        # CREATE_NO_WINDOW, pythonw.exe and CRLF line endings are only ever
+        # exercised there. Ubuntu stays in the matrix because it is faster and
+        # catches anything that quietly assumed a Windows path separator.
+        os: [windows-latest, ubuntu-latest]
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-ci.txt
 
-      # Deliberately NOT `pip install -e .[dev]`. The runtime stack pulls
-      # onnxruntime-gpu, faster-whisper and the CUDA 12 runtime — several GB,
-      # for a GPU no runner has. The test suite is built to need none of it:
-      # the voice-activity gate is substituted, so every import stays light.
+      # Pinned, and kept in a file rather than spelled out here — see the
+      # comments in requirements-ci.txt for why the runtime stack is excluded.
       - name: Install test dependencies
-        run: python -m pip install --upgrade pip pytest ruff numpy platformdirs
+        run: python -m pip install --upgrade pip -r backend/requirements-ci.txt
 
       - name: Lint
         working-directory: backend
@@ -38,6 +46,18 @@ jobs:
       - name: Tests
         working-directory: backend
         run: pytest
+
+  consistency:
+    name: Cross-language constants
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # SETTINGS_REVISION lives in two languages and must move as one. The
+      # README asks contributors to remember; this makes forgetting impossible.
+      # Same for the version, which is spelled out in five files.
+      - name: Check SETTINGS_REVISION and version agree
+        run: python .github/scripts/check_constants.py
 
   frontend:
     name: Frontend — Rust check
@@ -62,3 +82,27 @@ jobs:
       - name: Clippy
         working-directory: frontend/src-tauri
         run: cargo clippy --all-targets -- -D warnings
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Advisory-only: a freshly disclosed advisory in a transitive dependency
+      # should raise a flag, not block an unrelated pull request at 2 a.m.
+      - name: Python advisories
+        continue-on-error: true
+        run: |
+          python -m pip install --upgrade pip pip-audit
+          pip-audit --requirement backend/requirements-ci.txt --strict
+
+      - uses: rustsec/audit-check@v2
+        continue-on-error: true
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          working-directory: frontend/src-tauri

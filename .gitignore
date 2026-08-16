@@ -4,6 +4,11 @@ frontend/node_modules/
 # Genere par `uv run`, mais jamais lu : l'installation passe par
 # `uv pip install -e .`, qui ignore le verrou. Le committer figerait des roues
 # CUDA resolues sur une seule machine, dans un fichier que rien ne consulte.
+#
+# La contrepartie est assumee : la pile d'EXECUTION n'est pas reproductible au
+# paquet pres, parce qu'elle depend du GPU de la machine. Ce qui doit l'etre
+# l'est — `backend/requirements-ci.txt` epingle tout ce que la CI installe, et
+# `Cargo.lock` comme `package-lock.json` sont versionnes.
 uv.lock
 
 __pycache__/

@@ -700,29 +700,67 @@ your real history is not touched.
 - **The only network access is to Hugging Face**, to download a model and — when
   a model is loaded — to check the cached revision is current. Set
   `HF_HUB_OFFLINE=1` to suppress even that and work strictly from cache.
-- The service binds to **`127.0.0.1` only** and is unreachable from the network.
 - Transcriptions are stored **unencrypted** in `%APPDATA%\Murmure\history.db`.
   Audio is only kept if you enable *Keep the audio*.
 - Speaker identification runs **locally like everything else**. Voice embeddings
   are computed in memory to group turns within a single file and are never
   stored, never compared across files, and never leave the machine: Murmure can
   tell two people apart inside one recording, it cannot recognise who they are.
-- The local `/shutdown` endpoint is unauthenticated by design: it exists so a
-  newly launched application can replace a stale service holding port 8756.
-  Any local process can call it; the worst it can do is stop the service.
 - Cursor typing is refused by applications running as administrator — a Windows
   protection, not a bug.
 
+To report a vulnerability, see [SECURITY.md](SECURITY.md). Please do not open a
+public issue.
+
+### Why binding to localhost is not enough
+
+The service listens on `127.0.0.1:8756`, which puts it out of reach of the
+network. It does **not** put it out of reach of a browser: the same-origin policy
+does not apply to WebSocket connections, so a page on any site you visit can open
+a socket to `localhost` and talk to whatever answers. Binding locally is a
+deployment choice, not a security boundary — and since Murmure starts with your
+Windows session, that port is open all day.
+
+Two checks stand in the way instead:
+
+- **A session token.** The service draws a fresh one each time it starts and
+  writes it to `%APPDATA%\Murmure\session.token`. Every WebSocket connection and
+  every HTTP route except `/health` requires it. A web page cannot read files, so
+  it cannot obtain the token. The desktop application reads it through Rust; a
+  script you run yourself reads it directly, because it runs as you.
+- **An origin check.** Browsers always send an `Origin` header, and the
+  application sends `http://tauri.localhost`. Anything else is refused even with
+  a valid token.
+
+`/health` stays open deliberately: it is what lets a launching application tell a
+current service from a stale one or from an unrelated program, and it returns
+nothing but the version and the state. `/shutdown` used to be open for the same
+reason — it no longer is, because a page able to stop your dictation at will is a
+silent denial of service, with the hotkey simply not responding and nothing to
+explain why.
+
+None of this defends against code already running as you: such code can read
+`%APPDATA%\Murmure` directly. That is the documented limit of the model.
+
 ## Contributing
 
-Issues and pull requests are welcome. Before opening a PR:
+Issues and pull requests are welcome — see **[CONTRIBUTING.md](CONTRIBUTING.md)**
+for the setup, the checks CI runs, and what gets a pull request merged. The short
+version:
 
 - run `ruff check .` and `pytest` in `backend/`;
 - run `cargo fmt` and `cargo clippy` in `frontend/src-tauri/`;
 - if you change a setting's name or meaning, **raise `SETTINGS_REVISION` in both
-  files** (see [One service at a time](#one-service-at-a-time));
+  files** (see [One service at a time](#one-service-at-a-time)); CI fails if the
+  two diverge;
 - keep measured claims measured — this project documents what was observed, not
   what was assumed.
+
+Note that **the code is commented in French** while the documentation, interface
+and command line are in English. You do not need to write French to contribute;
+CONTRIBUTING.md explains how that is handled.
+
+Participation is covered by our [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Licence
 

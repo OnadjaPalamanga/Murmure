@@ -1,0 +1,53 @@
+name: Bug report
+description: Something behaves differently from what the documentation says.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Murmure runs entirely on your machine, so almost everything worth
+        knowing is on your machine too. The log at
+        `%APPDATA%\Murmure\murmure.log` is usually the fastest way in.
+
+        **Please do not paste transcriptions you would not publish.** The log
+        does not contain them, but a screenshot of the history does.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Settings and set …
+        2. Hold Ctrl+Space and say …
+        3. …
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Murmure version
+      description: The bottom of the Settings tab, or `.\murmure.ps1 --version`.
+    validations:
+      required: true
+
+  - type: input
+    id: model
+    attributes:
+      label: Model and device
+      description: Which model was selected, and whether it ran on CPU or CUDA.
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Relevant log lines
+      description: From `%APPDATA%\Murmure\murmure.log`. Rendered as code, no backticks needed.
+      render: text

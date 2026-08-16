@@ -1,0 +1,29 @@
+name: Feature request
+description: Suggest something Murmure should do.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >
+        What are you trying to do that Murmure makes hard today? Describe the
+        situation rather than the solution — it often has more than one.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you have in mind
+      description: Optional. If you already have a shape for it, describe it here.
+
+  - type: checkboxes
+    id: local
+    attributes:
+      label: Staying local
+      options:
+        - label: >
+            This can work without sending audio or text off the machine, or I
+            have said below why it cannot.
+          required: true

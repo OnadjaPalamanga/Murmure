@@ -1,0 +1,36 @@
+# Grouped and monthly on purpose: this is a single-author project, and a daily
+# stream of individual bumps is noise that gets ignored, which is worse than no
+# alerts at all. Security advisories arrive separately and immediately.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /frontend/src-tauri
+    schedule:
+      interval: monthly
+    groups:
+      rust:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: monthly
+    groups:
+      node:
+        patterns: ["*"]
+
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: monthly
+    groups:
+      python:
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
