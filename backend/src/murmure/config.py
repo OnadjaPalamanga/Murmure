@@ -113,6 +113,22 @@ class Settings:
         return asdict(self)
 
 
+def apply_text_rules(text: str, settings: Settings) -> str:
+    """Normalise les espaces, applique les remplacements et le rognage final.
+
+    Fonction et non methode du service : la ligne de commande transcrit sans
+    passer par lui, et deux implementations de la meme regle finiraient par
+    rendre deux textes differents pour le meme audio.
+    """
+    text = " ".join(text.split()).strip()
+    for src, dst in (settings.replacements or {}).items():
+        if src:
+            text = text.replace(src, dst)
+    if settings.trim_trailing_period:
+        text = text.rstrip(".").rstrip()
+    return text
+
+
 class ConfigStore:
     def __init__(self, path=CONFIG_FILE) -> None:
         self.path = path

@@ -18,6 +18,7 @@ from murmure.exports import (
     build_cues,
     cues_from_turns,
     format_timestamp,
+    line_ending,
     render,
     to_srt,
     to_vtt,
@@ -276,6 +277,65 @@ def test_json_is_valid_without_any_content():
     payload = json.loads(render("json", words=[], turns=[], text=""))
     assert payload["words"] == []
     assert payload["cues"] == []
+
+
+def test_json_carries_the_transcript_itself():
+    """Le recoller depuis `words` demande de connaitre la regle d'espacement :
+    un script qui met une espace partout rend « l 'application »."""
+    payload = json.loads(
+        render("json", words=[word(0.0, 1.0, "bonjour")], text="bonjour à tous")
+    )
+    assert payload["text"] == "bonjour à tous"
+
+
+# ------------------------------------- bornes de decoupage reglables
+#
+# L'interface garde les valeurs de lisibilite ; la ligne de commande les
+# expose, un habillage de sous-titres imposant souvent les siennes.
+
+
+def test_render_honours_a_shorter_cue_duration():
+    words = [word(t, t + 0.9, f"m{int(t)}") for t in range(0, 10)]
+    long_cues = render("json", words=words, max_seconds=6.0)
+    short_cues = render("json", words=words, max_seconds=2.0)
+    assert len(json.loads(short_cues)["cues"]) > len(json.loads(long_cues)["cues"])
+
+
+def test_render_honours_a_shorter_cue_length():
+    words = [word(t / 2, (t + 1) / 2, "mot") for t in range(0, 20)]
+    payload = json.loads(render("json", words=words, max_chars=12))
+    assert all(len(cue["text"]) <= 12 for cue in payload["cues"])
+
+
+def test_render_honours_a_tighter_silence():
+    """Une respiration est une frontiere naturelle : abaisser le seuil doit
+    couper plus souvent, pas ailleurs."""
+    words = [word(0.0, 0.5, "un"), word(0.9, 1.4, "deux")]
+    assert len(json.loads(render("json", words=words, max_gap=0.7))["cues"]) == 1
+    assert len(json.loads(render("json", words=words, max_gap=0.2))["cues"]) == 2
+
+
+def test_render_accepts_another_speaker_name():
+    """La ligne de commande prefixe « Speaker », l'interface « Locuteur »."""
+    out = render(
+        "srt",
+        words=[word(0.0, 1.0, "a", 0), word(2.0, 3.0, "b", 1)],
+        speaker_name="Speaker",
+    )
+    assert "Speaker 1:" in out
+    assert "Speaker 2:" in out
+
+
+# --------------------------------------------------- fins de ligne
+
+
+def test_subtitles_end_their_lines_the_way_players_expect():
+    """CRLF est la convention SubRip et les lecteurs les plus anciens s'y
+    arretent ; les formats de traitement gardent des fins de ligne Unix."""
+    assert line_ending("srt") == "\r\n"
+    assert line_ending("vtt") == "\r\n"
+    assert line_ending("json") == "\n"
+    assert line_ending("txt") == "\n"
 
 
 # ------------------------------------------------- recollage des mots

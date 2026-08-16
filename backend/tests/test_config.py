@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from murmure.config import ConfigStore, Settings
+from murmure.config import ConfigStore, Settings, apply_text_rules
 from murmure.models import CATALOG, default_model_id
 
 
@@ -109,3 +109,29 @@ class TestRobustesse:
         store = ConfigStore(tmp_path / "pas" / "encore" / "la" / "config.toml")
         store.update({"hotkey": "Ctrl+Alt+D"})
         assert store.path.is_file()
+
+
+class TestMiseEnForme:
+    """`apply_text_rules` est partagee par le service et la ligne de commande.
+
+    Deux implementations de la meme regle rendraient deux textes differents
+    pour le meme audio, selon qu'on a clique ou tape la commande.
+    """
+
+    def test_les_espaces_sont_normalises(self) -> None:
+        assert apply_text_rules("  du   texte \n espace ", Settings()) == "du texte espace"
+
+    def test_les_remplacements_s_appliquent(self) -> None:
+        settings = Settings(replacements={"murmur": "Murmure"})
+        assert apply_text_rules("essai de murmur", settings) == "essai de Murmure"
+
+    def test_une_cle_vide_ne_remplace_rien(self) -> None:
+        """`str.replace("", x)` insere x entre chaque caractere."""
+        assert apply_text_rules("intact", Settings(replacements={"": "!"})) == "intact"
+
+    def test_le_point_final_peut_etre_retire(self) -> None:
+        settings = Settings(trim_trailing_period=True)
+        assert apply_text_rules("une phrase.", settings) == "une phrase"
+
+    def test_le_point_final_est_garde_par_defaut(self) -> None:
+        assert apply_text_rules("une phrase.", Settings()) == "une phrase."

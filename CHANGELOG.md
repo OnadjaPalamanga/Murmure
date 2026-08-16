@@ -6,6 +6,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — a command line, for pipelines
+
+- **`murmure transcribe`** turns a batch of audio or video files into
+  subtitles or timed data without opening the application: wildcards and
+  directories as input, `srt`, `vtt`, `json` and `txt` as output, written
+  beside each file or into a directory of your choosing. Wildcards are expanded
+  by Murmure — PowerShell hands `*.mp4` to a native program untouched.
+- **The help is the interface.** `murmure transcribe --help` documents the four
+  formats, the exact shape of the `--json` report, the exit codes and complete
+  examples, so that something which has never seen the project — a model
+  driving the tool, for instance — can call it correctly from that text alone.
+- `murmure models` lists what `--model` accepts and what is already
+  downloaded, `murmure serve` names what `murmure` with no argument has always
+  done. The no-argument case is unchanged, which is what the Tauri application
+  and `install.ps1` rely on.
+- **stdout carries the result and nothing else**; progress and errors go to
+  stderr, and both streams are forced to UTF-8 so that a French subtitle
+  survives a console code page. `-f json --stdout | jq` needs no filtering.
+- **Nothing is overwritten unless asked** (`--overwrite`, `--skip-existing`),
+  and the check runs *before* the model is loaded: finding out after twenty
+  minutes of transcription would be an expensive way to learn it. Neither the
+  history nor `config.toml` is ever written to — the settings are read, and
+  each one can be overridden per call.
+- The subtitle cutting rules (`--max-chars`, `--max-seconds`, `--max-gap`) are
+  now parameters rather than constants, a subtitling brief often imposing its
+  own. The application keeps the readability values it had.
+- `srt` and `vtt` are **reported as failures when the engine dated nothing**,
+  rather than written as a file no player would accept. `json` and `txt` still
+  come out — the same degradation the export dialog already applied.
+
+The JSON export now carries the transcript itself alongside `words`, `turns`
+and `cues`: rebuilding it from the words requires knowing the spacing rule, and
+a script that joins with a space everywhere writes `l 'application`.
+
+`SETTINGS_REVISION` is untouched: no setting and no WebSocket command changed.
+
+### Changed
+
+- The settings descriptions added with speaker identification and word timings
+  were three sentences where the rest of the panel uses one. They now match:
+  the reasoning behind them lives in this file and in the README, which is
+  where someone goes looking for it — not in a hint under a checkbox.
+
 ### Added — export to subtitles and timed data
 
 - **An Export button on every history entry**, offering SRT, WebVTT, JSON and

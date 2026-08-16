@@ -46,6 +46,17 @@ FORMATS = ("srt", "vtt", "json", "txt")
 TIMED_FORMATS = ("srt", "vtt")
 
 
+def line_ending(fmt: str) -> str:
+    """CRLF pour les sous-titres, LF pour le reste.
+
+    C'est la convention SubRip, et les lecteurs les plus anciens s'y arretent.
+    Les autres formats gardent des fins de ligne Unix, que tout outil de
+    traitement attend. Ici plutot que chez chaque appelant : l'interface et la
+    ligne de commande ecrivent les memes fichiers, ils doivent s'accorder.
+    """
+    return "\r\n" if fmt in TIMED_FORMATS else "\n"
+
+
 @dataclass(slots=True)
 class Cue:
     """Un sous-titre : un intervalle, un texte, un locuteur eventuel."""
@@ -245,6 +256,7 @@ def to_json(
     turns: list[dict],
     cues: list[Cue],
     meta: dict | None = None,
+    text: str = "",
 ) -> str:
     """Sortie structuree, pensee pour le montage automatique.
 
@@ -252,9 +264,14 @@ def to_json(
     a la meme chose : `words` pour couper au mot pres (retirer une hesitation,
     resserrer un silence), `turns` pour savoir qui parle, `cues` pour reprendre
     exactement le decoupage des sous-titres exportes a cote.
+
+    `text` s'y ajoute parce que le reconstituer a partir des mots demande de
+    connaitre la regle d'espacement : un script qui recolle avec une espace
+    systematique rend « l 'application ».
     """
     payload = {
         "murmure": meta or {},
+        "text": text,
         "words": [
             {
                 "start": round(float(w.get("start", 0.0)), 3),
@@ -289,12 +306,19 @@ def render(
     text: str = "",
     meta: dict | None = None,
     speaker_name: str = "Locuteur",
+    max_chars: int = MAX_CHARS,
+    max_seconds: float = MAX_SECONDS,
+    max_gap: float = MAX_GAP,
 ) -> str:
     """Produit le contenu du fichier demande, en choisissant la meilleure source.
 
     Les mots dates priment sur les tours de parole, qui priment sur le texte
     brut : on descend d'un cran a chaque fois que la source la plus fine
     manque, plutot que d'echouer.
+
+    Les trois bornes de decoupage sont des parametres et non des constantes
+    figees : l'interface garde les valeurs de lisibilite, la ligne de commande
+    les expose parce qu'un habillage de sous-titres impose souvent les siennes.
     """
     fmt = fmt.lower().strip()
     if fmt not in FORMATS:
@@ -302,7 +326,11 @@ def render(
 
     words = words or []
     turns = turns or []
-    cues = build_cues(words) if words else cues_from_turns(turns)
+    cues = (
+        build_cues(words, max_chars=max_chars, max_seconds=max_seconds, max_gap=max_gap)
+        if words
+        else cues_from_turns(turns)
+    )
     # Prefixer « Locuteur 1 » sur un enregistrement a une voix n'apporte rien
     # et encombre chaque sous-titre.
     with_speakers = any(cue.speaker is not None for cue in cues) and (
@@ -310,7 +338,7 @@ def render(
     )
 
     if fmt == "json":
-        return to_json(words=words, turns=turns, cues=cues, meta=meta)
+        return to_json(words=words, turns=turns, cues=cues, meta=meta, text=text)
     if not cues:
         # Ni mots ni tours : il reste la transcription continue. SRT et VTT
         # sont refuses en amont dans ce cas, `txt` rend le texte tel quel.

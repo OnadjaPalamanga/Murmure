@@ -18,7 +18,7 @@ import soundfile as sf
 
 from .align import assign_speakers, count_speakers, dated_words, format_transcript
 from .audio import Recorder, list_input_devices
-from .config import ConfigStore
+from .config import ConfigStore, apply_text_rules
 from .diarize import TOTAL_DOWNLOAD_MB as DIARIZATION_MB
 from .diarize import DiarizationUnavailable, Diarizer, ensure_models
 from .diarize import clear_models as clear_diarization_models
@@ -27,7 +27,7 @@ from .diarize import models_present as diarization_models_present
 from .download import DownloadWatcher
 from .engines.base import SAMPLE_RATE, Engine
 from .exports import FORMATS as EXPORT_FORMATS
-from .exports import TIMED_FORMATS
+from .exports import TIMED_FORMATS, line_ending
 from .exports import render as render_export
 from .history import History
 from .media import AUDIO_EXT, VIDEO_EXT, find_ffmpeg, load_audio
@@ -910,11 +910,7 @@ class Service:
         path = Path(destination)
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            # CRLF pour les sous-titres : c'est la convention SubRip, et les
-            # lecteurs les plus anciens s'y arretent. Les autres formats gardent
-            # des fins de ligne Unix, que tout outil de traitement attend.
-            newline = "\r\n" if fmt in TIMED_FORMATS else "\n"
-            with path.open("w", encoding="utf-8", newline=newline) as handle:
+            with path.open("w", encoding="utf-8", newline=line_ending(fmt)) as handle:
                 handle.write(content)
         except OSError as exc:
             log.warning("Export impossible vers %s : %s", path, exc)
@@ -943,13 +939,7 @@ class Service:
         return None if value in ("", "auto") else value
 
     def _post_process(self, text: str) -> str:
-        text = " ".join(text.split()).strip()
-        for src, dst in (self.config.settings.replacements or {}).items():
-            if src:
-                text = text.replace(src, dst)
-        if self.config.settings.trim_trailing_period:
-            text = text.rstrip(".").rstrip()
-        return text
+        return apply_text_rules(text, self.config.settings)
 
     def _save_audio(self, audio: np.ndarray) -> str | None:
         try:

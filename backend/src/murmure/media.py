@@ -15,15 +15,14 @@ import subprocess
 from pathlib import Path
 
 import numpy as np
-import soundfile as sf
-import soxr
 
 from .engines.base import SAMPLE_RATE
 from .paths import PROJECT_ROOT
 
 log = logging.getLogger(__name__)
 
-# Extensions proposees dans le selecteur de fichiers.
+# Extensions proposees dans le selecteur de fichiers, et retenues quand la
+# ligne de commande fouille un dossier.
 AUDIO_EXT = ["wav", "mp3", "m4a", "aac", "flac", "ogg", "opus", "wma", "aiff", "aif"]
 VIDEO_EXT = ["mp4", "mkv", "mov", "avi", "webm", "m4v", "wmv", "flv", "mpg", "mpeg"]
 
@@ -41,6 +40,14 @@ def find_ffmpeg() -> str | None:
 
 
 def _via_soundfile(path: Path) -> np.ndarray:
+    # Importe ici et non en tete de module : `AUDIO_EXT`, `VIDEO_EXT` et
+    # `find_ffmpeg` sont de simples donnees, et la liste des extensions sert a
+    # decider QUELS fichiers traiter — bien avant d'en lire un seul. Charger
+    # tout le decodage audio pour repondre a cette question la rendrait
+    # indisponible partout ou la pile audio n'est pas installee.
+    import soundfile as sf
+    import soxr
+
     audio, sr = sf.read(str(path), dtype="float32", always_2d=True)
     audio = audio.mean(axis=1)  # mono
     if sr != SAMPLE_RATE:

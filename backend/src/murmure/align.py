@@ -139,22 +139,29 @@ def dated_words(blocks: list[SpeakerBlock]) -> list[dict]:
     ]
 
 
-def speaker_label(speaker: int | None, *, unknown: str = "Locuteur ?") -> str:
+def speaker_label(speaker: int | None, *, name: str = "Locuteur") -> str:
     """« Locuteur 1 », « Locuteur 2 »… Numerote a partir de 1 pour l'affichage.
 
     sherpa-onnx numerote a partir de 0, ce qui n'a de sens que pour une machine.
+
+    `name` existe pour la ligne de commande, dont les sorties sont lues par des
+    outils de montage et non par l'interface : elle prefixe « Speaker ».
     """
-    return unknown if speaker is None else f"Locuteur {speaker + 1}"
+    return f"{name} ?" if speaker is None else f"{name} {speaker + 1}"
 
 
-def format_transcript(blocks: list[SpeakerBlock]) -> str:
+def format_transcript(blocks: list[SpeakerBlock], *, speaker_name: str = "Locuteur") -> str:
     """Rend le dialogue en texte, un bloc par ligne, prefixe du locuteur.
 
     C'est cette chaine qui part dans l'historique et dans le presse-papier :
     elle doit rester lisible telle quelle, sans que l'interface ait a la
     reconstruire.
     """
-    return "\n".join(f"{speaker_label(b.speaker)} : {b.text}" for b in blocks if b.text.strip())
+    return "\n".join(
+        f"{speaker_label(b.speaker, name=speaker_name)} : {b.text}"
+        for b in blocks
+        if b.text.strip()
+    )
 
 
 def count_speakers(blocks: list[SpeakerBlock]) -> int:

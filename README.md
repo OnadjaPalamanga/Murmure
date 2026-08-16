@@ -303,6 +303,8 @@ the rest through `ffmpeg`.
 
 An imported file comes back with **each word timed**, which is what makes the
 transcript exportable as subtitles — see [Export](#export-subtitles-and-timed-data).
+For a batch of files, the same work is one command: see
+[Command line](#command-line).
 
 ---
 
@@ -435,6 +437,100 @@ speaker turn.
 
 ---
 
+## Command line
+
+Everything the *Files* tab does is also a command, so thirty rushes get
+subtitled without clicking thirty times:
+
+```powershell
+.\murmure.ps1 transcribe .\rushes\*.mp4 --format srt,json --output .\subtitles
+```
+
+`murmure.ps1` is a one-line relay to `backend\.venv\Scripts\murmure.exe`, which
+is the real program — call that directly, or `python -m murmure`, if you prefer.
+
+| Command | What it does |
+| --- | --- |
+| `murmure transcribe FILE…` | audio or video → subtitles and timed data |
+| `murmure models` | what `--model` accepts, and what is already downloaded |
+| `murmure serve` | the local service — what `murmure` with no command does |
+
+Inputs can be files, wildcards, or directories (`--recursive`). **The wildcards
+are expanded by Murmure, not by the shell**: PowerShell hands `*.mp4` to a
+native program untouched, and expanding it here is what stops the command
+looking for a file literally named `*.mp4`.
+
+Three properties make it safe to drop into a pipeline:
+
+- **stdout carries the result and nothing else.** Progress, warnings and errors
+  go to stderr, so `-f json --stdout | jq` needs no filtering. Both streams are
+  UTF-8 whatever the console's code page is set to.
+- **Nothing is overwritten unless asked** (`--overwrite`, or `--skip-existing`
+  to resume a batch). The check runs *before* the model is loaded: discovering
+  the conflict after twenty minutes of transcription is an expensive way to
+  learn it.
+- **The history and `config.toml` are never written to.** The settings are
+  *read* — model, spoken language, GPU, speaker identification — and each one
+  can be overridden per call. One rule: what the application says, unless you
+  say otherwise.
+
+### Driving it from a script, or from a model
+
+`murmure transcribe --help` is written to be enough on its own for a reader who
+has never seen the project — an LLM calling the tool included. It carries what
+each format is for, **the exact shape of the `--json` report**, the exit codes
+and complete examples rather than fragments.
+
+```powershell
+.\murmure.ps1 transcribe .\interview.mp4 -f srt,json --json --quiet
+```
+
+```json
+{
+  "ok": true, "model": "whisper-large-v3-turbo", "device": "cuda",
+  "files": [{
+    "input": "…\\interview.mp4", "ok": true,
+    "audio_seconds": 743.2, "latency_ms": 21300, "realtime_factor": 34.9,
+    "language": "fr", "words": 2431, "cues": 184, "speakers": 3,
+    "text": "…", "outputs": {"srt": "…\\interview.srt"}
+  }]
+}
+```
+
+| Exit | Meaning |
+| --- | --- |
+| `0` | every file transcribed, every requested output written |
+| `1` | at least one file or output failed — the report says which |
+| `2` | the command line could not be understood |
+
+A file that fails does not stop the batch: it comes back with `"ok": false` and
+an `error`, and the others are still processed. **Speaker identification that
+fails never costs the transcript** — the file is written without labels and the
+report carries `speakers_error`, exactly as the application degrades.
+
+### Speakers, and the shape of the cues
+
+```powershell
+.\murmure.ps1 transcribe .\reunion.wav --speakers 4 -f srt --speaker-label "Voix"
+```
+
+`--speakers N` implies `--diarize`, because typing the count and not getting
+speakers would be a surprise. The three rules subtitles are cut on are exposed
+too, since a subtitling brief often imposes its own:
+
+| | Default | |
+| --- | --- | --- |
+| `--max-chars` | 84 | longest cue, wrapped over two lines of 42 |
+| `--max-seconds` | 6 | longest cue |
+| `--max-gap` | 0.7 | silence that closes a cue even with room left |
+
+`srt` and `vtt` **need** word timings. If the engine produced none — a local
+model dropped into `models/` that cannot date its output — those two are
+reported as failures rather than written as a file no player would accept.
+`json` and `txt` still come out.
+
+---
+
 ## Architecture
 
 ```
@@ -453,6 +549,7 @@ backend/                 Python service (the model lives here)
     service.py           orchestration: mic → engine → history
     server.py            WebSocket transport (no business logic)
     history.py           SQLite + FTS5 full-text search
+    cli.py               the command line: batch transcription, scriptable
   tests/                 pure-logic tests, no model required
 frontend/                Tauri 2 application
   src/                   overlay + main window (HTML/CSS/JS)
@@ -554,11 +651,12 @@ uv pip install -e ".[dev]"
 
 The test suite covers the pure logic of the dictation path — segmentation,
 seams, polish acceptance bounds, chunking, settings persistence, subtitle
-recutting — and needs **no model and no GPU**: the voice-activity gate is
-substituted with a deterministic one. It enforces the invariants the design
-rests on, notably that **no audio sample is ever sent to the engine twice**,
-which is what stops a word being written into your document in duplicate, and
-that two subtitle cues never overlap.
+recutting, and which files a command will read and where its outputs land —
+and needs **no model and no GPU**: the voice-activity gate is substituted with
+a deterministic one. It enforces the invariants the design rests on, notably
+that **no audio sample is ever sent to the engine twice**, which is what stops
+a word being written into your document in duplicate, and that two subtitle
+cues never overlap.
 
 ### End-to-end checks
 

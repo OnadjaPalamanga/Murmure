@@ -65,7 +65,7 @@ const STRINGS = {
     "export.title": "Export this transcript",
     "export.intro": "Pick a format. You choose where the file goes next.",
     "export.introUntimed":
-      "This dictation was recorded without word timings, so subtitles cannot be built from it. Turn on “Time each word” in Settings to make future imports exportable.",
+      "No word timings on this one, so no subtitles. Turn on “Time each word” for future imports.",
     "export.srtHint": "Subtitles — every video editor reads it",
     "export.vttHint": "Subtitles for the web",
     "export.jsonHint": "Every word timed — for scripted editing",
@@ -193,29 +193,28 @@ const STRINGS = {
 
     "settings.timestamps": "Timestamps and export",
     "settings.timestampsIntro":
-      "Records the instant of every word in an imported file, which is what makes the transcript exportable as subtitles. There is no way to add this afterwards: without it, exporting means running the whole file through again.",
+      "Times every word of an imported file — what subtitles are built from. It cannot be added afterwards.",
     "settings.timestampsOn": "Time each word",
     "settings.timestampsHint":
-      "Imported files only. Free on Parakeet and Canary, around 10% slower on Whisper.",
+      "Imported files only. Free on Parakeet and Canary, ~10 % slower on Whisper.",
 
     "settings.speakers": "Speaker identification",
     "settings.speakersIntro":
-      "Splits an imported recording by who is speaking, and the transcript comes back as a dialogue. Imported files only: grouping voices means having heard the whole conversation, which cannot be done sentence by sentence while you dictate.",
+      "Splits an imported recording by who is speaking: the transcript comes back as a dialogue. Files only — grouping voices takes the whole conversation.",
     "settings.diarizeOn": "Identify speakers",
-    "settings.diarizeOnHint": "For meetings and interviews; pointless if you are the only speaker.",
+    "settings.diarizeOnHint": "For meetings and interviews; pointless if you speak alone.",
     "settings.diarizeOnMissing":
       "Unavailable: the diarization component is not installed. Run the service install again (uv pip install -e .).",
     "settings.diarizeOnDownload": "First use downloads {size} MB of models.",
     "settings.diarizeCount": "Number of people",
     "settings.diarizeCountHint":
-      "If you know it, say so: the result is clearly more reliable than automatic detection.",
+      "Knowing it is clearly more reliable than automatic detection.",
     "settings.diarizeAuto": "Detect automatically",
     "settings.diarizeCountN": "{count} people",
     "settings.diarizeThreshold": "Grouping sensitivity",
     "settings.diarizeThresholdHint":
-      "Only used when the number of people is detected automatically. Lower: one voice gets split across several speakers. Higher: two voices get merged into one.",
-    "settings.diarizeThresholdForced":
-      "Unused: with the number of people set, the grouping follows that number.",
+      "Lower: one voice splits in two. Higher: two voices merge into one.",
+    "settings.diarizeThresholdForced": "Unused: the number of people is set.",
     "settings.diarizeModels": "Speaker models",
     "settings.diarizeModelsReady": "Installed. Nothing to download.",
     "settings.diarizeModelsMissing": "Not downloaded yet — {size} MB, fetched on first use.",
@@ -365,7 +364,7 @@ const STRINGS = {
     "export.title": "Exporter cette transcription",
     "export.intro": "Choisis un format. Tu indiqueras ensuite où déposer le fichier.",
     "export.introUntimed":
-      "Cette dictée a été enregistrée sans datation des mots : impossible d'en tirer des sous-titres. Active « Dater chaque mot » dans les réglages pour que les prochains imports soient exportables.",
+      "Aucune datation sur cette dictée, donc pas de sous-titres. Active « Dater chaque mot » pour les prochains imports.",
     "export.srtHint": "Sous-titres — lus par tous les logiciels de montage",
     "export.vttHint": "Sous-titres pour le web",
     "export.jsonHint": "Chaque mot daté — pour un montage scripté",
@@ -493,30 +492,28 @@ const STRINGS = {
 
     "settings.timestamps": "Datation et export",
     "settings.timestampsIntro":
-      "Enregistre l'instant de chaque mot d'un fichier importé, ce qui rend la transcription exportable en sous-titres. Rien ne permet de l'ajouter après coup : sans datation, exporter demande de refaire passer le fichier entier.",
+      "Date chaque mot d'un fichier importé — ce sur quoi reposent les sous-titres. Impossible à ajouter après coup.",
     "settings.timestampsOn": "Dater chaque mot",
     "settings.timestampsHint":
-      "Fichiers importés uniquement. Gratuit sur Parakeet et Canary, environ 10 % plus lent sur Whisper.",
+      "Fichiers importés uniquement. Gratuit sur Parakeet et Canary, ~10 % plus lent sur Whisper.",
 
     "settings.speakers": "Identification des locuteurs",
     "settings.speakersIntro":
-      "Sépare un enregistrement importé par personne qui parle, et la transcription revient en dialogue. Fichiers importés uniquement : regrouper les voix demande d'avoir entendu toute la conversation, ce qui est impossible phrase par phrase pendant que tu dictes.",
+      "Sépare un enregistrement importé par personne qui parle : la transcription revient en dialogue. Fichiers uniquement — regrouper les voix demande toute la conversation.",
     "settings.diarizeOn": "Identifier les locuteurs",
-    "settings.diarizeOnHint":
-      "Pour les réunions et les entretiens ; inutile si tu es seul à parler.",
+    "settings.diarizeOnHint": "Pour les réunions et les entretiens ; inutile si tu parles seul.",
     "settings.diarizeOnMissing":
       "Indisponible : le composant de diarisation n'est pas installé. Relance l'installation du service (uv pip install -e .).",
     "settings.diarizeOnDownload": "Premier usage : {size} Mo de modèles seront téléchargés.",
     "settings.diarizeCount": "Nombre de personnes",
     "settings.diarizeCountHint":
-      "Si tu le connais, indique-le : le résultat est nettement plus fiable qu'en détection automatique.",
+      "L'indiquer est nettement plus fiable que la détection automatique.",
     "settings.diarizeAuto": "Détection automatique",
     "settings.diarizeCountN": "{count} personnes",
     "settings.diarizeThreshold": "Sensibilité du regroupement",
     "settings.diarizeThresholdHint":
-      "Utilisé seulement quand le nombre de personnes est détecté automatiquement. Plus bas : une même voix se fractionne en plusieurs locuteurs. Plus haut : deux voix n'en font plus qu'une.",
-    "settings.diarizeThresholdForced":
-      "Inutilisé : le nombre de personnes étant imposé, le regroupement s'y tient.",
+      "Plus bas : une voix se fractionne en deux. Plus haut : deux voix n'en font qu'une.",
+    "settings.diarizeThresholdForced": "Inutilisé : le nombre de personnes est imposé.",
     "settings.diarizeModels": "Modèles de locuteurs",
     "settings.diarizeModelsReady": "Installés. Rien à télécharger.",
     "settings.diarizeModelsMissing":

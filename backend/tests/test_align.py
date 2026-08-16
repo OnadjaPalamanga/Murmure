@@ -137,6 +137,14 @@ class TestFormatting:
         blocks = [SpeakerBlock(0, 0.0, 1.0, "texte"), SpeakerBlock(1, 1.0, 2.0, "   ")]
         assert format_transcript(blocks) == "Locuteur 1 : texte"
 
+    def test_le_prefixe_peut_changer_de_langue(self) -> None:
+        """La ligne de commande ecrit pour des outils de montage, pas pour
+        l'interface : elle prefixe « Speaker »."""
+        blocks = [SpeakerBlock(0, 0.0, 1.0, "hello"), SpeakerBlock(None, 1.0, 2.0, "?")]
+        assert format_transcript(blocks, speaker_name="Speaker") == (
+            "Speaker 1 : hello\nSpeaker ? : ?"
+        )
+
     def test_comptage_des_locuteurs(self) -> None:
         blocks = [
             SpeakerBlock(0, 0.0, 1.0, "a"),
