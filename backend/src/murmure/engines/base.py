@@ -23,6 +23,47 @@ class Word:
     start: float
     end: float
     text: str
+    # Une espace precedait-elle ce mot dans le texte du moteur ? Les deux
+    # moteurs rendent des mots nus, mais l'elision et le trait d'union font que
+    # « l' », « -etre » ou « 'application » se collent au voisin. Sans cette
+    # information, tout recollage rend « l 'application » et « peut -etre ».
+    space_before: bool = True
+
+    def to_dict(self) -> dict:
+        """Forme persistee. Arrondi a la milliseconde : en dessous c'est du
+        bruit de modele, et une heure d'audio fait dix mille mots — les
+        decimales inutiles se paient sur chaque ligne de la base.
+
+        `space_before` n'est ecrit que lorsqu'il est faux : c'est le cas rare,
+        et l'omission garde la base lisible autant que compacte.
+        """
+        item = {"start": round(self.start, 3), "end": round(self.end, 3), "text": self.text}
+        if not self.space_before:
+            item["space_before"] = False
+        return item
+
+
+def join_words(words) -> str:
+    """Recolle des mots en respectant l'espacement d'origine.
+
+    Une espace systematique donnerait « l 'application » et « peut -etre » : en
+    francais l'apostrophe et le trait d'union appartiennent au mot suivant, et
+    c'est le moteur — pas nous — qui sait lesquels. Une heuristique sur la
+    ponctuation marcherait sur ces deux cas et echouerait sur le troisieme.
+
+    Accepte indifferemment des `Word` et des dictionnaires relus de la base :
+    la regle est la meme, et elle ne doit exister qu'a un seul endroit.
+    """
+    parts: list[str] = []
+    for word in words:
+        if isinstance(word, dict):
+            text, spaced = word.get("text", ""), word.get("space_before", True)
+        else:
+            text, spaced = word.text, word.space_before
+        if parts and spaced:
+            parts.append(" ")
+        parts.append(text)
+    return "".join(parts)
 
 
 @dataclass(slots=True)

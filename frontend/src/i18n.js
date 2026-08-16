@@ -59,7 +59,18 @@ const STRINGS = {
     "history.pin": "Pin",
     "history.unpin": "Unpin",
     "history.delete": "Delete",
+    "history.export": "Export",
     "history.timing": "{seconds} s → {latency} ms",
+
+    "export.title": "Export this transcript",
+    "export.intro": "Pick a format. You choose where the file goes next.",
+    "export.introUntimed":
+      "This dictation was recorded without word timings, so subtitles cannot be built from it. Turn on “Time each word” in Settings to make future imports exportable.",
+    "export.srtHint": "Subtitles — every video editor reads it",
+    "export.vttHint": "Subtitles for the web",
+    "export.jsonHint": "Every word timed — for scripted editing",
+    "export.txt": "Text",
+    "export.txtHint": "Timestamped, readable as is",
 
     "speaker.numbered": "Speaker {number}",
     "speaker.unknown": "Speaker ?",
@@ -180,6 +191,13 @@ const STRINGS = {
     "lang.fr": "French",
     "lang.en": "English",
 
+    "settings.timestamps": "Timestamps and export",
+    "settings.timestampsIntro":
+      "Records the instant of every word in an imported file, which is what makes the transcript exportable as subtitles. There is no way to add this afterwards: without it, exporting means running the whole file through again.",
+    "settings.timestampsOn": "Time each word",
+    "settings.timestampsHint":
+      "Imported files only. Free on Parakeet and Canary, around 10% slower on Whisper.",
+
     "settings.speakers": "Speaker identification",
     "settings.speakersIntro":
       "Splits an imported recording by who is speaking, and the transcript comes back as a dialogue. Imported files only: grouping voices means having heard the whole conversation, which cannot be done sentence by sentence while you dictate.",
@@ -283,6 +301,11 @@ const STRINGS = {
     "srv.diarize_models_missing": "Speaker models missing after download. Expected in {path}.",
     "srv.diarize_config_rejected":
       "sherpa-onnx refused the diarization setup (missing or unreadable model).",
+    "srv.export_done": "Exported to {name}",
+    "srv.export_bad_format": "Unknown export format: {format}",
+    "srv.export_missing_entry": "This dictation is no longer in the history",
+    "srv.export_no_timestamps": "This dictation has no word timings — subtitles need them",
+    "srv.export_write_failed": "The file could not be written: {detail}",
 
     // --- erreurs du raccourci (cote Rust) ---
     "hotkey.invalid": "Invalid hotkey: « {accelerator} ». Expected format: Ctrl+Alt+D",
@@ -293,6 +316,7 @@ const STRINGS = {
     "toast.copied": "Copied to the clipboard",
     "toast.deleted": "Dictation deleted",
     "toast.audioUnplayable": "This audio cannot be played",
+    "toast.exportFailed": "Export cancelled: {detail}",
 
     "tray.tooltip": "Murmure — local dictation",
     "tray.quit": "Quit",
@@ -335,7 +359,18 @@ const STRINGS = {
     "history.pin": "Épingler",
     "history.unpin": "Détacher",
     "history.delete": "Supprimer",
+    "history.export": "Exporter",
     "history.timing": "{seconds} s → {latency} ms",
+
+    "export.title": "Exporter cette transcription",
+    "export.intro": "Choisis un format. Tu indiqueras ensuite où déposer le fichier.",
+    "export.introUntimed":
+      "Cette dictée a été enregistrée sans datation des mots : impossible d'en tirer des sous-titres. Active « Dater chaque mot » dans les réglages pour que les prochains imports soient exportables.",
+    "export.srtHint": "Sous-titres — lus par tous les logiciels de montage",
+    "export.vttHint": "Sous-titres pour le web",
+    "export.jsonHint": "Chaque mot daté — pour un montage scripté",
+    "export.txt": "Texte",
+    "export.txtHint": "Horodaté, lisible tel quel",
 
     "speaker.numbered": "Locuteur {number}",
     "speaker.unknown": "Locuteur ?",
@@ -456,6 +491,13 @@ const STRINGS = {
     "lang.fr": "Français",
     "lang.en": "Anglais",
 
+    "settings.timestamps": "Datation et export",
+    "settings.timestampsIntro":
+      "Enregistre l'instant de chaque mot d'un fichier importé, ce qui rend la transcription exportable en sous-titres. Rien ne permet de l'ajouter après coup : sans datation, exporter demande de refaire passer le fichier entier.",
+    "settings.timestampsOn": "Dater chaque mot",
+    "settings.timestampsHint":
+      "Fichiers importés uniquement. Gratuit sur Parakeet et Canary, environ 10 % plus lent sur Whisper.",
+
     "settings.speakers": "Identification des locuteurs",
     "settings.speakersIntro":
       "Sépare un enregistrement importé par personne qui parle, et la transcription revient en dialogue. Fichiers importés uniquement : regrouper les voix demande d'avoir entendu toute la conversation, ce qui est impossible phrase par phrase pendant que tu dictes.",
@@ -564,6 +606,12 @@ const STRINGS = {
       "Modèles de locuteurs absents après téléchargement. Attendus dans {path}.",
     "srv.diarize_config_rejected":
       "sherpa-onnx a refusé la configuration de diarisation (modèle manquant ou illisible).",
+    "srv.export_done": "Exporté vers {name}",
+    "srv.export_bad_format": "Format d'export inconnu : {format}",
+    "srv.export_missing_entry": "Cette dictée n'est plus dans l'historique",
+    "srv.export_no_timestamps":
+      "Cette dictée n'a pas de repères temporels — les sous-titres en ont besoin",
+    "srv.export_write_failed": "Écriture du fichier impossible : {detail}",
 
     // --- erreurs du raccourci (cote Rust) ---
     "hotkey.invalid": "Raccourci invalide : « {accelerator} ». Format attendu : Ctrl+Alt+D",
@@ -574,6 +622,7 @@ const STRINGS = {
     "toast.copied": "Copié dans le presse-papier",
     "toast.deleted": "Dictée supprimée",
     "toast.audioUnplayable": "Impossible de lire cet audio",
+    "toast.exportFailed": "Export annulé : {detail}",
 
     "tray.tooltip": "Murmure — dictée locale",
     "tray.quit": "Quitter",

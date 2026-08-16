@@ -102,7 +102,7 @@ fn find_service_python() -> Option<(PathBuf, PathBuf)> {
 /// Revision des reglages attendue du service. Doit valoir `SETTINGS_REVISION`
 /// dans `backend/src/murmure/server.py` : les deux montent ensemble des qu'un
 /// reglage est ajoute, retire ou change de sens.
-const SETTINGS_REVISION: u32 = 4;
+const SETTINGS_REVISION: u32 = 5;
 
 /// Ce que repond le service sur le port 8756, s'il repond.
 enum ServiceState {

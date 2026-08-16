@@ -301,6 +301,9 @@ the rest through `ffmpeg`.
 > its own licence). Put an `ffmpeg.exe` in `bin/`, or install it in your `PATH`.
 > Without it, common audio formats still work; video files do not.
 
+An imported file comes back with **each word timed**, which is what makes the
+transcript exportable as subtitles — see [Export](#export-subtitles-and-timed-data).
+
 ---
 
 ## Speaker identification
@@ -386,6 +389,52 @@ Diarization is best-effort, and honest about it:
 
 ---
 
+## Export: subtitles and timed data
+
+Every history entry has an **Export** button. Four formats:
+
+| Format | What it is good for |
+|---|---|
+| **SRT** | Subtitles. Every video editor and player reads it. |
+| **WebVTT** | Subtitles for the web. |
+| **JSON** | Every word timed, for scripted editing. |
+| **Text** | Timestamped, readable without a tool. |
+
+You pick where the file goes through the normal Windows save dialog. Nothing is
+written anywhere you did not name.
+
+### Word-level timing
+
+Subtitles are not cut at speaker turns — a two-minute monologue would make a
+two-minute subtitle. They are recut from **individual word timings**, closing a
+cue when the speaker changes, when a silence runs past 0.7 s, at 6 seconds, or
+at two lines of 42 characters, whichever comes first. Cues shorter than 0.4 s
+are stretched, but never past the start of the next one: two subtitles on screen
+at once is a visible defect.
+
+The JSON carries three granularities at once, because they answer different
+questions — `words` to cut on an exact word (drop a filler, tighten a pause),
+`turns` to know who is speaking, `cues` to reproduce the exact segmentation of
+the SRT exported beside it.
+
+### It has to be recorded during transcription
+
+Word timings cannot be added afterwards. Getting them for an old entry means
+running the whole file through again — which is what you discover an hour too
+late. So **Settings ▸ Timestamps and export ▸ Time each word** is on by default.
+It costs nothing on Parakeet and Canary, whose decoder already dates its tokens,
+and around 10 % on Whisper, which has to align after the fact.
+
+Dictation never records timings: there is nothing to export from a sentence
+typed straight at your cursor.
+
+An entry recorded without them still exports to **JSON and Text**; SRT and
+WebVTT are greyed out, with the reason on screen rather than an empty file. An
+entry that was diarized but not word-timed falls back to one subtitle per
+speaker turn.
+
+---
+
 ## Architecture
 
 ```
@@ -398,6 +447,7 @@ backend/                 Python service (the model lives here)
     polish.py            re-decode safeguards: seams, when to refuse
     diarize.py           speaker diarization (sherpa-onnx, files only)
     align.py             maps words onto speaker turns by maximum overlap
+    exports.py           recuts timed words into subtitles (SRT, WebVTT, JSON)
     media.py             reads any audio/video file (soundfile, ffmpeg)
     download.py          download progress by watching the cache grow
     service.py           orchestration: mic → engine → history
@@ -503,11 +553,12 @@ uv pip install -e ".[dev]"
 ```
 
 The test suite covers the pure logic of the dictation path — segmentation,
-seams, polish acceptance bounds, chunking, settings persistence — and needs
-**no model and no GPU**: the voice-activity gate is substituted with a
-deterministic one. It enforces the invariants the design rests on, notably that
-**no audio sample is ever sent to the engine twice**, which is what stops a word
-being written into your document in duplicate.
+seams, polish acceptance bounds, chunking, settings persistence, subtitle
+recutting — and needs **no model and no GPU**: the voice-activity gate is
+substituted with a deterministic one. It enforces the invariants the design
+rests on, notably that **no audio sample is ever sent to the engine twice**,
+which is what stops a word being written into your document in duplicate, and
+that two subtitle cues never overlap.
 
 ### End-to-end checks
 
@@ -523,6 +574,9 @@ cd backend
 
 # Diarisation, via le Service entier.
 .\.venv\Scripts\python.exe scripts\diarize_check.py <file> [model_id] [--speakers N]
+
+# Export : transcription datee, ecriture en base, relecture, sous-titres.
+.\.venv\Scripts\python.exe scripts\export_check.py <file> [model_id] [--diarize]
 ```
 
 `diarize_check` goes through `Service.transcribe_files` and checks that speaker

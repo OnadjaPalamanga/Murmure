@@ -35,7 +35,7 @@ PORT = 8756
 # `diarize_download` et parle a un service qui l'ignore ne recoit qu'un
 # « commande inconnue » au moment ou l'utilisateur clique.
 # La version du paquet ne suffit pas : elle bouge trop rarement.
-SETTINGS_REVISION = 4
+SETTINGS_REVISION = 5
 
 service = Service()
 
@@ -168,6 +168,18 @@ async def _handle(command: dict[str, Any]) -> dict[str, Any] | None:
         case "diarize_clear":
             snapshot = await asyncio.to_thread(service.diarization_clear)
             return {"type": "snapshot", **snapshot}
+
+        # Ecriture d'un fichier sur le disque, vers un chemin choisi dans un
+        # dialogue natif. Dans un thread : lire les mots dates d'une heure
+        # d'audio et les mettre en forme prend le temps que prend le disque.
+        case "export_entry":
+            result = await asyncio.to_thread(
+                service.export_entry,
+                command["id"],
+                command.get("format", ""),
+                command.get("path", ""),
+            )
+            return {"type": "export_done", **result}
 
         case "history_search":
             entries = await asyncio.to_thread(

@@ -16,7 +16,7 @@ from typing import Any
 import numpy as np
 import soundfile as sf
 
-from .align import assign_speakers, count_speakers, format_transcript
+from .align import assign_speakers, count_speakers, dated_words, format_transcript
 from .audio import Recorder, list_input_devices
 from .config import ConfigStore
 from .diarize import TOTAL_DOWNLOAD_MB as DIARIZATION_MB
@@ -26,6 +26,9 @@ from .diarize import is_installed as diarization_installed
 from .diarize import models_present as diarization_models_present
 from .download import DownloadWatcher
 from .engines.base import SAMPLE_RATE, Engine
+from .exports import FORMATS as EXPORT_FORMATS
+from .exports import TIMED_FORMATS
+from .exports import render as render_export
 from .history import History
 from .media import AUDIO_EXT, VIDEO_EXT, find_ffmpeg, load_audio
 from .models import build_engine, get_spec, list_models, resolve_spec
@@ -620,11 +623,15 @@ class Service:
                 )
 
                 diarizing = bool(self.config.settings.diarize_files)
+                keep_words = bool(self.config.settings.timestamps_files)
                 engine = self.ensure_engine()
                 # Dater les mots coute du calcul : on ne le demande que si
-                # quelqu'un va s'en servir pour attribuer les locuteurs.
+                # quelqu'un va s'en servir — pour attribuer les locuteurs, ou
+                # pour rendre l'entree exportable en sous-titres.
                 result = engine.transcribe(
-                    audio, language=self._resolved_language(), timestamps=diarizing
+                    audio,
+                    language=self._resolved_language(),
+                    timestamps=diarizing or keep_words,
                 )
                 text = self._post_process(result.text)
 
@@ -642,14 +649,23 @@ class Service:
 
                 segments = None
                 speakers = 0
+                # La diarisation date les mots pour son propre compte, mais les
+                # conserver quand le reglage dit de ne pas les garder ecrirait
+                # dans la base ce que l'utilisateur a refuse.
+                words = [w.to_dict() for w in result.words] if keep_words and result.words else None
                 if diarizing:
                     # `text` sert de repli : il est deja mis en forme, et
                     # `_diarize_file` ne doit pas repasser dessus. Appliquer les
                     # remplacements deux fois sur le meme texte les composerait
                     # — une regle « a » -> « aa » donnerait « aaaa ».
-                    text, segments, speakers = self._diarize_file(
+                    text, segments, speakers, attributed = self._diarize_file(
                         audio, result, path, fallback=text, index=index, total=total
                     )
+                    # Les memes mots, portant desormais leur locuteur. Absents
+                    # si la diarisation a echoue : on garde alors les mots nus,
+                    # qui suffisent a un export sans nom de locuteur.
+                    if keep_words and attributed:
+                        words = attributed
 
                 entry = self.history.add(
                     text=text,
@@ -659,6 +675,7 @@ class Service:
                     latency_ms=result.latency_ms,
                     audio_path=str(path),
                     segments=segments,
+                    words=words,
                 )
                 self.emit(
                     {
@@ -682,8 +699,11 @@ class Service:
 
     def _diarize_file(
         self, audio: np.ndarray, result, path: Path, *, fallback: str, index: int, total: int
-    ) -> tuple[str, list[dict] | None, int]:
-        """Attribue le texte aux locuteurs. Rend (texte, tours de parole, nombre).
+    ) -> tuple[str, list[dict] | None, int, list[dict] | None]:
+        """Attribue le texte aux locuteurs.
+
+        Rend (texte, tours de parole, nombre de locuteurs, mots dates). Les mots
+        rendus portent leur locuteur, contrairement a ceux du moteur.
 
         **Ne fait jamais perdre une transcription.** Tout ce qui peut echouer ici
         — dependance absente, telechargement coupe, modele illisible — se solde
@@ -713,7 +733,7 @@ class Service:
                 # Le moteur n'a pas date les mots : sans eux il n'y a rien a
                 # attribuer. Cas d'un modele local depose a la main.
                 log.info("Diarisation impossible sur %s : aucun mot date", name)
-                return fallback, None, 0
+                return fallback, None, 0, None
 
             stage("diarize_running")
             # Le verrou attend : si les reglages sont en train de telecharger
@@ -730,11 +750,11 @@ class Service:
                 threshold=float(settings.diarize_threshold),
             )
             if not diarized.segments:
-                return fallback, None, 0
+                return fallback, None, 0, None
 
             blocks = assign_speakers(result.words, diarized.segments)
             if not blocks:
-                return fallback, None, 0
+                return fallback, None, 0, None
 
             # Les remplacements et le rognage s'appliquent bloc par bloc : les
             # appliquer a la transcription mise en forme risquerait de manger un
@@ -744,9 +764,9 @@ class Service:
 
             text = format_transcript(blocks)
             if not text.strip():
-                return fallback, None, 0
+                return fallback, None, 0, None
 
-            return text, [b.to_dict() for b in blocks], count_speakers(blocks)
+            return text, [b.to_dict() for b in blocks], count_speakers(blocks), dated_words(blocks)
 
         except DiarizationUnavailable as exc:
             log.warning("Diarisation indisponible sur %s : %s", name, exc)
@@ -769,7 +789,7 @@ class Service:
                 }
             )
 
-        return fallback, None, 0
+        return fallback, None, 0, None
 
     # --------------------------------------- modeles de diarisation (reglages)
 
@@ -829,6 +849,91 @@ class Service:
         self._diarizer = None
         clear_diarization_models()
         return self.snapshot()
+
+    # ------------------------------------------------------ export d'une entree
+
+    def export_entry(self, entry_id: str, fmt: str, destination: str) -> dict:
+        """Ecrit une entree d'historique en sous-titres, en JSON ou en texte.
+
+        Le chemin vient d'un dialogue « Enregistrer sous » natif : c'est
+        l'utilisateur qui l'a designe. On ecrit donc ou il a dit, sans chercher
+        a corriger son choix — mais jamais sans lui : rien ici n'invente un
+        emplacement.
+
+        Aucune exception ne remonte : un disque plein ou un dossier devenu
+        inaccessible se dit dans l'interface, il ne casse pas la connexion.
+        """
+        fmt = (fmt or "").lower().strip()
+        if fmt not in EXPORT_FORMATS:
+            return {
+                "ok": False,
+                "key": "export_bad_format",
+                "params": {"format": fmt},
+                "message": f"Format d'export inconnu : {fmt}",
+            }
+
+        entry = self.history.get(entry_id)
+        if entry is None:
+            return {
+                "ok": False,
+                "key": "export_missing_entry",
+                "params": {},
+                "message": "Cette dictée n'est plus dans l'historique.",
+            }
+
+        words = entry.get("words") or []
+        turns = entry.get("segments") or []
+        # SRT et WebVTT sont faits de reperes temporels : sans datation il n'y a
+        # pas de version degradee a proposer, seulement un fichier vide.
+        if fmt in TIMED_FORMATS and not words and not turns:
+            return {
+                "ok": False,
+                "key": "export_no_timestamps",
+                "params": {},
+                "message": "Cette dictée n'a pas de repères temporels.",
+            }
+
+        content = render_export(
+            fmt,
+            words=words,
+            turns=turns,
+            text=entry.get("text", ""),
+            meta={
+                "id": entry.get("id"),
+                "created_at": entry.get("created_at"),
+                "model_id": entry.get("model_id"),
+                "audio_seconds": entry.get("audio_seconds"),
+                "source": entry.get("audio_path"),
+            },
+        )
+
+        path = Path(destination)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            # CRLF pour les sous-titres : c'est la convention SubRip, et les
+            # lecteurs les plus anciens s'y arretent. Les autres formats gardent
+            # des fins de ligne Unix, que tout outil de traitement attend.
+            newline = "\r\n" if fmt in TIMED_FORMATS else "\n"
+            with path.open("w", encoding="utf-8", newline=newline) as handle:
+                handle.write(content)
+        except OSError as exc:
+            log.warning("Export impossible vers %s : %s", path, exc)
+            return {
+                "ok": False,
+                "key": "export_write_failed",
+                "params": {"detail": str(exc)},
+                "message": f"Écriture du fichier impossible : {exc}",
+            }
+
+        log.info("Entree %s exportee en %s vers %s", entry_id, fmt, path)
+        return {
+            "ok": True,
+            "key": "export_done",
+            "params": {"name": path.name, "format": fmt},
+            "message": f"Exporté vers {path.name}",
+            "path": str(path),
+            "bytes": len(content.encode("utf-8")),
+        }
 
     # ------------------------------------------------------------- reglages
 

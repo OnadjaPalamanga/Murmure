@@ -71,6 +71,17 @@ class Settings:
     # de toute facon sans carte graphique : voir `_transcribe_preview`.
     preview_ms: int = PREVIEW_MS
 
+    # --- datation des mots (import de fichiers uniquement) ---
+    # Enregistre l'instant de chaque mot, ce qui rend l'entree exportable en
+    # SRT, WebVTT ou JSON. Actif par defaut : sans datation au moment de la
+    # transcription, il n'y a aucun moyen de l'obtenir apres coup — il faut
+    # refaire passer le fichier entier, ce qui est precisement ce qu'on
+    # decouvre une heure trop tard. Le surcout est nul sur Parakeet et Canary,
+    # dont le decodeur date deja ses jetons, et de l'ordre de 10 % sur Whisper,
+    # qui doit aligner apres coup.
+    # La dictee, elle, ne date jamais : elle n'a rien a exporter.
+    timestamps_files: bool = True
+
     # --- diarisation (import de fichiers uniquement) ---
     # Identifier qui parle demande d'avoir entendu toute la conversation : on ne
     # peut pas nommer le deuxieme locuteur avant de l'avoir entendu une premiere

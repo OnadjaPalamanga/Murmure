@@ -51,14 +51,17 @@ def words_from_tokens(
         following = timestamps[index + 1] if index + 1 < len(timestamps) else None
         end = following if following is not None else (duration if duration is not None else start)
         if token.startswith(" ") or not groups:
-            groups.append([start, end, token.strip()])
+            # L'espace initiale du jeton dit si le mot se colle au precedent :
+            # « peut » « -etre » sont deux mots que seule cette marque distingue
+            # de « peut » « etre ».
+            groups.append([start, end, token.strip(), token.startswith(" ")])
         else:
             groups[-1][1] = end
             groups[-1][2] += token
 
     return [
-        Word(offset + start, offset + max(end, start), text)
-        for start, end, text in groups
+        Word(offset + start, offset + max(end, start), text, space_before=spaced)
+        for start, end, text, spaced in groups
         if text.strip()
     ]
 

@@ -170,9 +170,19 @@ class WhisperEngine:
         for seg in segments:
             parts.append(seg.text.strip())
             for word in getattr(seg, "words", None) or ():
+                # faster-whisper porte l'espacement DANS le mot (« l' » puis
+                # « application » sans espace initiale). On le retient avant de
+                # depouiller, sinon plus rien ne permet de recoller juste.
                 label = word.word.strip()
                 if label:
-                    words.append(Word(float(word.start), float(word.end), label))
+                    words.append(
+                        Word(
+                            float(word.start),
+                            float(word.end),
+                            label,
+                            space_before=word.word[:1].isspace(),
+                        )
+                    )
 
         text = " ".join(p for p in parts if p).strip()
         latency_ms = int((time.perf_counter() - started) * 1000)

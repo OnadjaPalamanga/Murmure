@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
-from .engines.base import Word
+from .engines.base import Word, join_words
 
 log = logging.getLogger(__name__)
 
@@ -107,18 +107,36 @@ def assign_speakers(words: list[Word], segments: list[SpeakerSegment]) -> list[S
             block = blocks[-1]
             block.end = max(block.end, word.end)
             block.words.append(word)
-            block.text = f"{block.text} {word.text}".strip()
         else:
             blocks.append(
                 SpeakerBlock(
                     speaker=speaker,
                     start=word.start,
                     end=word.end,
-                    text=word.text,
+                    text="",
                     words=[word],
                 )
             )
+
+    # Le texte est recolle a la fin, en respectant l'espacement du moteur : une
+    # espace entre chaque mot rendrait « l 'application » et « peut -etre ».
+    for block in blocks:
+        block.text = join_words(block.words)
     return blocks
+
+
+def dated_words(blocks: list[SpeakerBlock]) -> list[dict]:
+    """Mots dates portant chacun son locuteur, prets a etre persistes.
+
+    L'attribution est figee ICI, ou elle vient d'etre calculee. L'export n'a
+    donc jamais a rejouer la regle du recouvrement maximal : dupliquee la-bas,
+    elle finirait par diverger de celle-ci sans que rien ne le signale.
+    """
+    return [
+        {**word.to_dict(), "speaker": block.speaker}
+        for block in blocks
+        for word in block.words
+    ]
 
 
 def speaker_label(speaker: int | None, *, unknown: str = "Locuteur ?") -> str:

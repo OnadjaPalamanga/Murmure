@@ -133,3 +133,63 @@ class TestBase:
         history.add(text="recente", model_id="m")
         history.set_pinned(first["id"], True)
         assert history.search("")[0]["id"] == first["id"]
+
+
+MOTS = [
+    {"start": 0.0, "end": 0.4, "text": "bonjour", "speaker": 0},
+    {"start": 0.5, "end": 0.9, "text": "monde", "speaker": 0},
+]
+
+
+class TestMotsDates:
+    """Les mots dates, qui rendent une entree exportable en sous-titres.
+
+    Ils sont volumineux — une heure d'audio fait dix mille mots — et c'est ce
+    volume qui dicte leur traitement : ecrits une fois, jamais renvoyes avec une
+    liste, relus seulement a l'export.
+    """
+
+    def test_les_mots_sont_relus_tels_qu_ecrits(self, history: History) -> None:
+        entry = history.add(text="bonjour monde", model_id="m", words=MOTS)
+        assert history.get(entry["id"])["words"] == MOTS
+
+    def test_une_recherche_ne_renvoie_jamais_les_mots(self, history: History) -> None:
+        """Deux cents entrees d'une heure feraient traverser des dizaines de
+        megaoctets au WebSocket pour n'afficher qu'un bouton d'export."""
+        history.add(text="bonjour monde", model_id="m", words=MOTS)
+        found = history.search("")[0]
+        assert "words" not in found
+        assert found["has_words"] is True
+
+    def test_l_ajout_ne_renvoie_pas_les_mots_non_plus(self, history: History) -> None:
+        """La valeur rendue par `add` part directement dans l'evenement
+        `file_done`, vers la meme interface."""
+        entry = history.add(text="bonjour monde", model_id="m", words=MOTS)
+        assert "words" not in entry
+        assert entry["has_words"] is True
+
+    def test_une_entree_sans_mots_le_dit(self, history: History) -> None:
+        history.add(text="dictee au vol", model_id="m")
+        found = history.search("")[0]
+        assert found["has_words"] is False
+        assert history.get(found["id"])["words"] is None
+
+    def test_la_recherche_plein_texte_expose_le_meme_drapeau(self, history: History) -> None:
+        """La requete FTS passe par une jointure et une autre liste de colonnes :
+        c'est un second chemin, qui peut oublier `has_words` tout seul."""
+        history.add(text="le budget previsionnel", model_id="m", words=MOTS)
+        found = history.search("budget")[0]
+        assert found["has_words"] is True
+        assert "words" not in found
+
+    def test_des_mots_illisibles_ne_font_pas_perdre_la_dictee(self, history: History) -> None:
+        """Meme garantie que pour les tours de parole : on perd les mots, pas la
+        transcription."""
+        entry = history.add(text="une dictee", model_id="m", words=MOTS)
+        history._conn.execute(
+            "UPDATE entries SET words = ? WHERE id = ?", ("{ pas du json", entry["id"])
+        )
+        history._conn.commit()
+        relu = history.get(entry["id"])
+        assert relu["text"] == "une dictee"
+        assert relu["words"] is None

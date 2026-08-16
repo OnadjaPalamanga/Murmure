@@ -93,6 +93,59 @@ deleteDialog.addEventListener("close", () => {
   pendingDelete = null;
 });
 
+// ---------------------------------------------------------------- export
+
+let pendingExport = null;
+const exportDialog = $("#export-dialog");
+
+/// Nom propose : celui du fichier d'origine, que l'utilisateur reconnait au
+/// milieu de son dossier de rushes. Une dictee au vol n'a pas de fichier
+/// source — on retombe alors sur la date.
+function exportBaseName(entry) {
+  const source = entry.audio_path;
+  if (source) {
+    const stem = (source.split(/[\\/]/).pop() ?? "").replace(/\.[^.]+$/, "");
+    if (stem) return stem;
+  }
+  return `murmure-${String(entry.created_at ?? "").slice(0, 10)}`;
+}
+
+/// SRT et WebVTT sont faits de reperes temporels : sans datation ils n'ont rien
+/// a horodater. On grise plutot que de laisser produire un fichier vide, et le
+/// message dit pourquoi — sinon le bouton parait cassé.
+function requestExport(entry) {
+  pendingExport = entry;
+  const timed = Boolean(entry.has_words || entry.segments?.length);
+  $("#export-message").textContent = timed ? t("export.intro") : t("export.introUntimed");
+  for (const button of exportDialog.querySelectorAll(".export-format")) {
+    button.disabled = !timed && (button.value === "srt" || button.value === "vtt");
+  }
+  exportDialog.showModal();
+}
+
+exportDialog.addEventListener("close", async () => {
+  const entry = pendingExport;
+  const format = exportDialog.returnValue;
+  pendingExport = null;
+  // Echap rend une chaine vide, le bouton d'annulation rend « cancel ».
+  if (!entry || !format || format === "cancel") return;
+
+  let path;
+  try {
+    const { save } = window.__TAURI__.dialog;
+    path = await save({
+      defaultPath: `${exportBaseName(entry)}.${format}`,
+      filters: [{ name: format.toUpperCase(), extensions: [format] }],
+    });
+  } catch (err) {
+    toast(t("toast.exportFailed", { detail: String(err) }), 6000);
+    return;
+  }
+  // Dialogue ferme sans choisir : ce n'est pas un echec, on ne dit rien.
+  if (!path) return;
+  bus.send("export_entry", { id: entry.id, format, path });
+});
+
 // -------------------------------------------------------------- historique
 
 function formatHistoryDuration(seconds) {
@@ -334,12 +387,17 @@ function renderHistory(entries) {
       bus.send("history_pin", { id: entry.id, pinned: !entry.pinned }),
     );
 
+    const exportBtn = document.createElement("button");
+    exportBtn.className = "mini";
+    exportBtn.textContent = t("history.export");
+    exportBtn.addEventListener("click", () => requestExport(entry));
+
     const del = document.createElement("button");
     del.className = "mini danger";
     del.textContent = t("history.delete");
     del.addEventListener("click", () => requestDelete(entry));
 
-    actions.append(copy, pin, del);
+    actions.append(copy, pin, exportBtn, del);
 
     const footer = document.createElement("div");
     footer.className = "entry-footer";
@@ -471,6 +529,7 @@ const FIELDS = [
   "phrase_silence_ms",
   "polish_mode",
   "preview_ms",
+  "timestamps_files",
   "diarize_files",
   "diarize_speakers",
   "diarize_threshold",
@@ -967,6 +1026,13 @@ bus.on("file_done", (msg) => {
 bus.on("files_finished", ({ total }) => {
   hideProgress();
   toast(tn("files.finished", total));
+});
+
+// Emis reussite comme echec : l'ecriture est la seule etape qui puisse encore
+// echouer une fois le format choisi (disque plein, dossier devenu inaccessible),
+// et un export silencieux laisserait croire au succes.
+bus.on("export_done", (msg) => {
+  toast(fromService(msg), msg.ok ? 4000 : 6000);
 });
 
 bus.on("final", () => refreshHistory());

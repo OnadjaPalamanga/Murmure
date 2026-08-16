@@ -59,7 +59,35 @@ END;
 _MIGRATIONS: list[tuple[str, str]] = [
     # (colonne, definition)
     ("segments", "TEXT"),  # JSON : [{"speaker", "start", "end", "text"}, ...]
+    ("words", "TEXT"),  # JSON : [{"start", "end", "text", "speaker"}, ...]
 ]
+
+# Colonnes rendues par une recherche. `words` en est volontairement absente :
+# une heure d'audio fait dix mille mots, et une liste de deux cents entrees les
+# ferait toutes traverser le WebSocket pour n'afficher qu'un bouton d'export.
+# L'interface recoit un booleen `has_words` ; les mots ne sont lus qu'a
+# l'export, entree par entree.
+_ENTRY_COLUMNS = (
+    "id",
+    "created_at",
+    "text",
+    "model_id",
+    "device",
+    "audio_seconds",
+    "latency_ms",
+    "audio_path",
+    "pinned",
+    "segments",
+)
+
+# Colonnes stockees en JSON, decodees a la lecture.
+_JSON_COLUMNS = ("segments", "words")
+
+
+def _list_select(alias: str = "") -> str:
+    prefix = f"{alias}." if alias else ""
+    columns = ", ".join(f"{prefix}{name}" for name in _ENTRY_COLUMNS)
+    return f"{columns}, ({prefix}words IS NOT NULL) AS has_words"
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
@@ -72,23 +100,28 @@ def _migrate(conn: sqlite3.Connection) -> None:
 
 
 def _row_to_entry(row: sqlite3.Row) -> dict:
-    """Convertit une ligne en entree, tours de parole decodes.
+    """Convertit une ligne en entree, colonnes JSON decodees.
 
     Le seul endroit ou le JSON est relu : une base ecrite a la main, ou par une
     version qui aurait stocke autre chose, ne doit pas faire disparaitre
-    l'historique entier de l'interface. On perd les tours de parole, pas la
-    dictee.
+    l'historique entier de l'interface. On perd les tours de parole ou les mots
+    dates, pas la dictee.
     """
     entry = dict(row)
-    raw = entry.get("segments")
-    if not raw:
-        entry["segments"] = None
-        return entry
-    try:
-        entry["segments"] = json.loads(raw)
-    except (TypeError, ValueError):
-        log.warning("Tours de parole illisibles sur l'entrée %s", entry.get("id"))
-        entry["segments"] = None
+    if "has_words" in entry:
+        entry["has_words"] = bool(entry["has_words"])
+    for column in _JSON_COLUMNS:
+        if column not in entry:
+            continue
+        raw = entry[column]
+        if not raw:
+            entry[column] = None
+            continue
+        try:
+            entry[column] = json.loads(raw)
+        except (TypeError, ValueError):
+            log.warning("Colonne « %s » illisible sur l'entrée %s", column, entry.get("id"))
+            entry[column] = None
     return entry
 
 
@@ -113,6 +146,7 @@ class History:
         latency_ms: int = 0,
         audio_path: str | None = None,
         segments: list[dict] | None = None,
+        words: list[dict] | None = None,
     ) -> dict:
         entry = {
             "id": uuid.uuid4().hex,
@@ -130,27 +164,34 @@ class History:
             # jointure. NULL = dictee non diarisee, ce qu'etait tout
             # l'historique anterieur.
             "segments": json.dumps(segments, ensure_ascii=False) if segments else None,
+            "words": json.dumps(words, ensure_ascii=False) if words else None,
         }
         with self._lock:
             self._conn.execute(
                 "INSERT INTO entries (id, created_at, text, model_id, device,"
-                " audio_seconds, latency_ms, audio_path, pinned, segments)"
+                " audio_seconds, latency_ms, audio_path, pinned, segments, words)"
                 " VALUES (:id, :created_at, :text, :model_id, :device,"
-                " :audio_seconds, :latency_ms, :audio_path, :pinned, :segments)",
+                " :audio_seconds, :latency_ms, :audio_path, :pinned, :segments, :words)",
                 entry,
             )
             self._conn.commit()
         # L'appelant recoit les tours de parole sous forme utilisable, pas la
-        # chaine JSON qui vient d'etre ecrite.
-        return {**entry, "segments": segments or None}
+        # chaine JSON qui vient d'etre ecrite. Les mots, eux, ne repartent pas :
+        # ils viennent d'etre ecrits, ils pesent lourd, et l'appelant emet cette
+        # entree vers l'interface qui n'en a besoin qu'a l'export.
+        return {
+            **{k: v for k, v in entry.items() if k != "words"},
+            "segments": segments or None,
+            "has_words": bool(words),
+        }
 
     def search(self, query: str = "", *, limit: int = 100, offset: int = 0) -> list[dict]:
         query = query.strip()
         with self._lock:
             if not query:
                 rows = self._conn.execute(
-                    "SELECT * FROM entries ORDER BY pinned DESC, created_at DESC"
-                    " LIMIT ? OFFSET ?",
+                    f"SELECT {_list_select()} FROM entries"
+                    " ORDER BY pinned DESC, created_at DESC LIMIT ? OFFSET ?",
                     (limit, offset),
                 ).fetchall()
             else:
@@ -158,14 +199,15 @@ class History:
                 match = " ".join(f'"{t}"*' for t in query.split() if t)
                 try:
                     rows = self._conn.execute(
-                        "SELECT e.* FROM entries_fts f JOIN entries e ON e.rowid = f.rowid"
+                        f"SELECT {_list_select('e')} FROM entries_fts f"
+                        " JOIN entries e ON e.rowid = f.rowid"
                         " WHERE entries_fts MATCH ? ORDER BY rank LIMIT ? OFFSET ?",
                         (match, limit, offset),
                     ).fetchall()
                 except sqlite3.OperationalError:
                     # Requete FTS invalide : repli sur un LIKE.
                     rows = self._conn.execute(
-                        "SELECT * FROM entries WHERE text LIKE ?"
+                        f"SELECT {_list_select()} FROM entries WHERE text LIKE ?"
                         " ORDER BY created_at DESC LIMIT ? OFFSET ?",
                         (f"%{query}%", limit, offset),
                     ).fetchall()

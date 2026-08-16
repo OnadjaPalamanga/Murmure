@@ -306,6 +306,23 @@
             <!-- L'identification des locuteurs a ses propres reglages : elle
                  dispose de modeles a elle, qu'on peut vouloir installer avant
                  d'en avoir besoin ou effacer pour recuperer la place. -->
+            <fieldset id="timestamps-fieldset">
+              <legend data-i18n="settings.timestamps">Timestamps and export</legend>
+              <p class="fieldset-intro" data-i18n="settings.timestampsIntro"></p>
+
+              <label class="row switch">
+                <span class="label">
+                  <span data-i18n="settings.timestampsOn">Time each word</span>
+                  <em data-i18n="settings.timestampsHint"></em>
+                </span>
+                <input
+                  type="checkbox"
+                  id="set-timestamps_files"
+                  data-setting="timestamps_files"
+                />
+              </label>
+            </fieldset>
+
             <fieldset id="diarize-fieldset">
               <legend data-i18n="settings.speakers">Speaker identification</legend>
               <p class="fieldset-intro" data-i18n="settings.speakersIntro"></p>
@@ -491,6 +508,34 @@
           >
             Delete
           </button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="confirm-dialog export-dialog" id="export-dialog">
+      <form method="dialog">
+        <h2 data-i18n="export.title">Export this transcript</h2>
+        <p id="export-message"></p>
+        <div class="export-formats">
+          <button class="export-format" value="srt" type="submit">
+            <strong>SRT</strong>
+            <em data-i18n="export.srtHint"></em>
+          </button>
+          <button class="export-format" value="vtt" type="submit">
+            <strong>WebVTT</strong>
+            <em data-i18n="export.vttHint"></em>
+          </button>
+          <button class="export-format" value="json" type="submit">
+            <strong>JSON</strong>
+            <em data-i18n="export.jsonHint"></em>
+          </button>
+          <button class="export-format" value="txt" type="submit">
+            <strong data-i18n="export.txt">Text</strong>
+            <em data-i18n="export.txtHint"></em>
+          </button>
+        </div>
+        <div class="dialog-actions">
+          <button class="btn-outline" value="cancel" data-i18n="dialog.cancel">Cancel</button>
         </div>
       </form>
     </dialog>

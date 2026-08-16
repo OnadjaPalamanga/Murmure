@@ -1187,6 +1187,49 @@ select.input {
   gap: 8px;
 }
 
+/* Un format par ligne : le nom seul ne dit pas a quoi il sert, et c'est
+   justement ce qu'on vient chercher ici. */
+.export-dialog {
+  width: min(460px, calc(100vw - 40px));
+}
+.export-formats {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.export-format {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 11px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.export-format:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: rgba(255, 255, 255, 0.04);
+}
+.export-format strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.export-format em {
+  color: var(--text-dim);
+  font-size: 11.5px;
+  font-style: normal;
+}
+/* Grise plutot que masque : un format absent ferait croire a un oubli, alors
+   qu'il manque seulement la datation — ce que le message au-dessus explique. */
+.export-format:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 @media (max-width: 820px) {
   .history-heading {
     flex-wrap: wrap;

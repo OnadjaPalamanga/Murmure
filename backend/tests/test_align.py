@@ -158,3 +158,47 @@ class TestFormatting:
             "end": 2.57,
             "text": "du texte",
         }
+
+
+class TestRecollageDesMots:
+    """Le texte d'un tour de parole est reconstruit mot a mot.
+
+    Regression : il l'etait avec une espace systematique, ce qui rendait
+    « l 'application » et « peut -etre » dans toute transcription diarisee. Le
+    defaut ne levait rien — le texte affiche et les tours stockes etaient
+    identiques, donc coherents entre eux, et faux ensemble.
+    """
+
+    def test_l_elision_reste_collee(self) -> None:
+        mots = [
+            Word(0.0, 0.3, "de"),
+            Word(0.3, 0.6, "l'"),
+            Word(0.6, 1.2, "application", space_before=False),
+        ]
+        blocks = assign_speakers(mots, [SpeakerSegment(0.0, 1.2, 0)])
+        assert blocks[0].text == "de l'application"
+
+    def test_le_trait_d_union_reste_colle(self) -> None:
+        mots = [
+            Word(0.0, 0.4, "peut"),
+            Word(0.4, 0.9, "-être", space_before=False),
+        ]
+        blocks = assign_speakers(mots, [SpeakerSegment(0.0, 0.9, 0)])
+        assert blocks[0].text == "peut-être"
+
+    def test_les_mots_ordinaires_restent_separes(self) -> None:
+        mots = [Word(0.0, 0.4, "bonjour"), Word(0.5, 0.9, "monde")]
+        blocks = assign_speakers(mots, [SpeakerSegment(0.0, 0.9, 0)])
+        assert blocks[0].text == "bonjour monde"
+
+    def test_le_recollage_traverse_les_locuteurs(self) -> None:
+        """Un mot colle au precedent ouvre quand meme un bloc si le locuteur
+        change : on ne recolle jamais par-dessus une frontiere de parole."""
+        mots = [
+            Word(0.0, 0.4, "oui"),
+            Word(1.5, 2.0, "-enfin", space_before=False),
+        ]
+        blocks = assign_speakers(
+            mots, [SpeakerSegment(0.0, 0.5, 0), SpeakerSegment(1.4, 2.0, 1)]
+        )
+        assert [b.text for b in blocks] == ["oui", "-enfin"]

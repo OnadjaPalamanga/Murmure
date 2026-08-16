@@ -6,6 +6,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — export to subtitles and timed data
+
+- **An Export button on every history entry**, offering SRT, WebVTT, JSON and
+  timestamped text. The destination comes from the normal Windows save dialog:
+  nothing is written anywhere you did not name.
+- Subtitles are **recut from individual word timings**, not from speaker turns —
+  a two-minute monologue is one turn, and would have made a two-minute subtitle.
+  A cue closes on a speaker change, on a silence past 0.7 s, at 6 seconds or at
+  two lines of 42 characters. Cues under 0.4 s are stretched, but never past the
+  start of the next one: two subtitles on screen at once is a visible defect.
+- The JSON carries `words`, `turns` and `cues` together, because they answer
+  different questions: cutting on an exact word, knowing who speaks, and
+  reproducing the segmentation of the SRT exported beside it.
+- **`timestamps_files`, on by default.** Word timings cannot be added after the
+  fact — obtaining them for an old entry means running the whole file through
+  again, which is what you discover an hour too late. The cost is nil on
+  Parakeet and Canary, whose decoder already dates its tokens, and about 10 % on
+  Whisper. Dictation still never dates anything: it has nothing to export.
+- The speaker is written **onto each word** as it is persisted, while the
+  attribution is fresh. The maximum-overlap rule stays in `align.py` alone; an
+  export that replayed it would have been a second copy, free to drift.
+- Graceful degradation all the way down: no words but speaker turns exports one
+  subtitle per turn; neither exports JSON and text; SRT and WebVTT grey out with
+  the reason on screen instead of producing an empty file.
+
+Word timings are **excluded from history listings**. An hour of audio is ten
+thousand words, and two hundred entries would have crossed the WebSocket in full
+to display one button — the list carries a `has_words` flag, and the words are
+read only at export.
+
+`SETTINGS_REVISION` moves 4 → 5: one setting and one command (`export_entry`)
+appear.
+
 ### Added — the interface speaks English and French
 
 - **Interface language, English by default**, French on request, switchable in
@@ -45,6 +78,14 @@ on automatic detection, and the two settings never meet.
 
 ### Fixed
 
+- **Text rebuilt from timed words lost French elision**: `l 'application`,
+  `peut -être`, `j 'ai`. Both engines return bare words and threw away whether a
+  space preceded each one, so rejoining inserted a space the sentence never had.
+  This already affected **every diarized transcript** — the defect was invisible
+  to the tests because the displayed text and the stored turns were rebuilt the
+  same wrong way, so they agreed with each other. The engines now record the
+  spacing and one shared `join_words` applies it, rather than a punctuation
+  heuristic that would guess right in French and wrong elsewhere.
 - A range setting whose stored value fell outside the slider's bounds displayed
   the stored value next to a slider pinned at its limit — announcing a setting
   that does not exist. The settings file is meant to be hand-edited, so the
